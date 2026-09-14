@@ -602,7 +602,7 @@
     b.t0 = performance.now();
     attempts += 1;
     updateHUD();
-    Sound.flip();
+    Sound.flip(b.source === 'hand');   // 挂机抛瓶音效衰减(后期多手不嘈杂)
   }
 
   function settleResult(b) {
@@ -627,7 +627,7 @@
       if (special) stats.specialHits++;
       text = '+' + gained + ' 瓶盖' + typeLabel;
       color = special ? typeColor : '#52e07c';
-      Sound.success();
+      Sound.success(streak, isHand);   // 连击音高分层 + 挂机衰减
     } else if (b.state === 'inverted') {
       if (!isHand) { streak += 1; streakExpireAt = performance.now() + streakWindowMs(); if (streak >= 2) triggerCombo(streak); }  // 挂机不累计连击
       const streakTerm = isHand ? 0 : (streak - 1) * bonus;  // 挂机不吃连击, 连击项恒为0
@@ -638,12 +638,12 @@
       if (special) stats.specialHits++;
       text = '+' + gained + ' 瓶盖 瓶口站立!' + typeLabel;
       color = special ? typeColor : '#ffc857';
-      Sound.bonus();
+      Sound.bonus(streak, isHand);   // 倒立专属高光 + 连击分层 + 挂机衰减
     } else {
       if (!isHand) breakStreak();                           // 挂机平躺不影响连击
       text = '平躺' + (special ? ' (' + bt.name + ')' : '');
       color = '#8fa0b8';
-      Sound.fail();
+      Sound.fail(isHand);   // 平躺负反馈, 挂机衰减
     }
     if (caps > best) { best = caps; }
     if (streak > stats.maxStreak) { stats.maxStreak = streak; }

@@ -20,8 +20,10 @@
       if (actx && actx.state === 'suspended') actx.resume();
       return actx;
     }
-    function tone(freq, dur, type, vol, when, slideTo) {
-      if (!enabled || volume <= 0) return;
+    // 单音: freq 基频, dur 时长, type 波形, vol 相对音量(0~1, 乘全局 volume),
+    // when 延迟(秒), slideTo 滑音终点, attack 起音时长, decay 衰减时长
+    function tone(freq, dur, type, vol, when, slideTo, attack, decay) {
+      if (!enabled || volume <= 0 || !freq) return;
       const c = ensure(); if (!c) return;
       const t = c.currentTime + (when || 0);
       const o = c.createOscillator(), g = c.createGain();
@@ -29,12 +31,31 @@
       o.frequency.setValueAtTime(freq, t);
       if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(1, slideTo), t + dur);
       const v = Math.max(0.0001, (vol || 0.15) * volume);
+      const atk = attack || 0.012;
+      const dec = decay || dur;
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(v, t + 0.012);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      g.gain.exponentialRampToValueAtTime(v, t + atk);        // 起音(attack)
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dec);   // 衰减(decay)
       o.connect(g); g.connect(c.destination);
-      o.start(t); o.stop(t + dur + 0.06);
+      o.start(t); o.stop(t + dec + 0.06);
     }
+    // 和弦/泛音叠加: 基频 + 多个泛音(五度/八度) 提升音色层次
+    function toneChord(freq, dur, type, vol, when, opts) {
+      opts = opts || {};
+      tone(freq, dur, type, vol, when, opts.slideTo, opts.attack, opts.decay);
+      (opts.partials || []).forEach(p =>
+        tone(p.f, p.d || dur, p.t || 'sine', p.v || vol * 0.5, when, null, opts.attack, opts.decay));
+    }
+
+    // 节流表: 同类型音效极短时间内去重, 防后期多瓶多手同时落地导致音效叠加刺耳
+    const lastPlayed = {};
+    function throttled(name, ms) {
+      const now = performance.now();
+      if (lastPlayed[name] && now - lastPlayed[name] < ms) return false;
+      lastPlayed[name] = now;
+      return true;
+    }
+
     return {
       unlock: ensure,
       getCtx: ensure,
@@ -42,10 +63,47 @@
       setEnabled(b) { enabled = !!b; onVolumeChange(); },
       isEnabled()   { return enabled; },
       getVolume()   { return volume; },
-      flip()        { tone(200, 0.14, 'triangle', 0.12, 0, 520); },
-      success()     { tone(660, 0.12, 'sine', 0.16); tone(880, 0.18, 'sine', 0.16, 0.09); },
-      bonus()       { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.18, 'sine', 0.16, i * 0.085)); },
-      fail()        { tone(160, 0.22, 'sawtooth', 0.07, 0, 70); },
+
+      // 抛瓶: isHand 挂机音量衰减, 同类型 50ms 节流
+      flip(isHand) {
+        if (!throttled('flip', 50)) return;
+        tone(200, 0.14, 'triangle', isHand ? 0.05 : 0.12, 0, 520);
+      },
+
+      // 直立命中: streak 连击分层(音高递增), isHand 挂机衰减且不升音高
+      success(streak, isHand) {
+        if (!throttled('success', 45)) return;
+        const s = isHand ? 0 : Math.min(streak || 0, 20);
+        const base = 660 + s * 18;                             // 连击越高音越亮 660→1020
+        const vol = isHand ? 0.08 : 0.16;
+        toneChord(base, 0.14, 'triangle', vol, 0, {
+          partials: [
+            { f: base * 1.5, v: vol * 0.5, t: 'sine' },        // 五度泛音
+            { f: base * 2,   v: vol * 0.3, t: 'sine' },        // 八度泛音
+          ],
+          attack: 0.008, decay: 0.16,
+        });
+        tone(base * 1.33, 0.16, 'sine', vol * 0.6, 0.07);      // 清脆收尾上行音
+      },
+
+      // 倒立命中(瓶口站立, 核心奖励): 快速上行滑音 + 琶音 + 高八度泛音, 专属高光
+      bonus(streak, isHand) {
+        if (!throttled('bonus', 45)) return;
+        const s = isHand ? 0 : Math.min(streak || 0, 20);
+        const base = 523 + s * 16;                             // 连击越高越亮 523→843
+        const vol = isHand ? 0.08 : 0.16;
+        tone(base, 0.10, 'triangle', vol, 0, base * 1.5);      // 闪亮上行滑音
+        [base, base * 1.25, base * 1.5, base * 2].forEach((f, i) =>
+          tone(f, 0.16, 'sine', vol * (1 - i * 0.15), i * 0.06));  // C-E-G-C 上行琶音
+        tone(base * 2, 0.20, 'sine', vol * 0.4, 0.24);         // 高八度延音尾
+      },
+
+      // 平躺(失败): 负反馈, 挂机衰减
+      fail(isHand) {
+        if (!throttled('fail', 45)) return;
+        tone(160, 0.22, 'sawtooth', isHand ? 0.035 : 0.07, 0, 70);
+      },
+
       smash()       { tone(120, 0.08, 'square', 0.12, 0, 60); tone(80, 0.10, 'square', 0.10, 0.03, 40); },
       streakBreak(level) { tone(440 + Math.min(level || 0, 20) * 40, 0.4, 'sawtooth', 0.09, 0, 110); },
       purchase()    { tone(520, 0.09, 'square', 0.10); tone(780, 0.14, 'square', 0.10, 0.06); },

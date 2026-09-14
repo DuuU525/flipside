@@ -1,0 +1,20 @@
+# 临时测试/调试脚本(CDP 验证、benchmark、截图脚本)
+cdp-*.py
+bench-*.html
+test-runner*.html
+raf-*.html
+raf-*.png
+
+# 临时预览 HTML 与截图(prototype/ 归档区保留源文件, 但 *.png 截图不入库)
+*.png
+!icon.png
+!og-image.png
+!favicon/favicon-16.png
+!favicon/favicon-32.png
+!favicon/favicon-48.png
+!favicon/favicon-180.png
+!favicon/favicon-192.png
+
+# 系统/编辑器
+.DS_Store
+Thumbs.db

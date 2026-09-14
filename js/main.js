@@ -405,6 +405,16 @@
     return stateFromPointer(Math.random(), ranges);
   }
 
+  // 平躺兜底翻正: 手动乱点也小概率正立/倒立, 概率与成功率科技(区间半宽)正相关
+  function rollLyingSave() {
+    const inv = invertedHalf() * CONFIG.lyingSave.invertedFactor;   // 翻倒立(更稀有, 系数更低)
+    const up  = uprightHalf()  * CONFIG.lyingSave.uprightFactor;    // 翻直立
+    const r = Math.random();
+    if (r < inv) return 'inverted';
+    if (r < inv + up) return 'upright';
+    return 'lying';
+  }
+
   // ============================ 朝向角度语义 ============================
   // 瓶子始终以"正视图"(正面朝向镜头)绘制, rot 即瓶口朝向角度:
   //   直立   upright  → 0°           (瓶口朝上)
@@ -761,7 +771,8 @@
     charging = null;
     if (b) b.claimed = false;            // 释放占用(手可重新选择该瓶)
     if (b && !b.flying) {
-      const state = stateFromPointer(chargePointer(chargePhase));
+      let state = stateFromPointer(chargePointer(chargePhase));
+      if (state === 'lying') state = rollLyingSave();   // 平躺兜底: 小概率翻正(概率随成功率科技)
       throwBottle(b, state, 'manual');
     }
   }

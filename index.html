@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Flipside · P瓶子 — 抛瓶子</title>
+<link rel="icon" type="image/png" sizes="16x16" href="favicon/favicon-16.png?v=1.0.9">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon/favicon-32.png?v=1.0.9">
+<link rel="icon" type="image/png" sizes="48x48" href="favicon/favicon-48.png?v=1.0.9">
+<link rel="icon" type="image/png" href="icon.png?v=1.0.9">
+<link rel="apple-touch-icon" sizes="180x180" href="favicon/favicon-180.png?v=1.0.9">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0c1a46">
+<meta name="description" content="Flipside · P瓶子 — 抛瓶子：看准时机松手让瓶子直立或倒立站住，攒瓶盖解锁科技树、自动抛瓶的手与稀有瓶子。纯前端零依赖网页小游戏。">
+<meta property="og:title" content="Flipside · P瓶子 — 抛瓶子">
+<meta property="og:description" content="a bottle-flip &amp; cap-collecting game · 抛瓶子，看它落哪儿、以什么姿势站住！">
+<meta property="og:type" content="website">
+<meta property="og:image" content="og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Flipside · P瓶子 — 倒立玻璃瓶与瓶盖">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Flipside · P瓶子 — 抛瓶子">
+<meta name="twitter:description" content="a bottle-flip &amp; cap-collecting game · 抛瓶子，看它落哪儿、以什么姿势站住！">
+<meta name="twitter:image" content="og-image.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="game">
+  <header class="hud">
+    <div class="stat"><span class="stat-label">瓶盖</span><span class="stat-value" id="score">0</span></div>
+    <div class="stat"><span class="stat-label">最佳</span><span class="stat-value" id="best">0</span></div>
+    <div class="stat"><span class="stat-label">连击</span><span class="stat-value" id="streak">0</span></div>
+    <div class="stat"><span class="stat-label">次数</span><span class="stat-value" id="attempts">0</span></div>
+    <button id="restartBtn" class="restart" title="重新开始">重新开始</button>
+    <button id="soundBtn" class="sound-btn" aria-label="音效开关" title="声音设置"></button>
+  </header>
+
+  <div class="main">
+    <div id="stage">
+      <canvas id="world" width="900" height="620"></canvas>
+
+      <div id="overlay" class="overlay">
+        <div class="overlay-card">
+          <h1 class="title">Flipside<span class="accent"> · P瓶子</span></h1>
+          <p class="subtitle">a bottle-flip &amp; cap-collecting game · 抛瓶子，看它落哪儿、以什么姿势站住！</p>
+          <ul class="rules">
+            <li><span class="dot dot-good"></span>直立 <b>+1</b> 瓶盖</li>
+            <li><span class="dot dot-bonus"></span>倒立（瓶口站立） <b>+5</b> 瓶盖 · 特殊奖励</li>
+            <li><span class="dot dot-bad"></span>平躺 <b>0</b> 瓶盖 · 连击清零</li>
+          </ul>
+          <button id="startBtn" class="btn">开始游戏</button>
+          <p class="hint">点击瓶子蓄力抛出 · 攒瓶盖解锁右侧功能界面</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="drawer">
+      <div id="drawerHandle" class="drawer-handle" role="button" tabindex="0">
+        <span class="drawer-chev" aria-hidden="true">▲</span>
+        <span class="drawer-label">功能面板</span>
+      </div>
+      <aside id="panel" class="panel locked">
+        <div class="panel-locked">
+        <svg class="lock-icon" viewBox="0 0 24 24" width="40" height="40" aria-hidden="true">
+          <rect x="5" y="10" width="14" height="10" rx="2" fill="#8fa0b8"/>
+          <path d="M8 10 V7 a4 4 0 0 1 8 0 V10" fill="none" stroke="#8fa0b8" stroke-width="2"/>
+        </svg>
+        <div class="lock-title">功能界面已锁定</div>
+        <div class="lock-desc">消耗 <b id="panelUnlockCost">30</b> 瓶盖解锁</div>
+        <button id="unlockPanelBtn" class="btn btn-unlock">解锁功能界面</button>
+        <button id="previewTechBtn" class="btn btn-preview">查看科技树</button>
+      </div>
+
+      <div class="panel-tabs">
+        <button class="tab active" data-tab="items">道具</button>
+        <button class="tab" data-tab="tech">科技树</button>
+        <button class="tab" data-tab="achievements">成就</button>
+      </div>
+
+      <div class="panel-body">
+        <div id="tab-items" class="tab-pane active"></div>
+        <div id="tab-tech" class="tab-pane"></div>
+        <div id="tab-achievements" class="tab-pane"></div>
+      </div>
+
+      <div class="panel-footer">瓶盖 <b id="capsBalance">0</b></div>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<!-- 全屏科技树大图（横向分层节点图） -->
+<div id="techOverlay" class="tech-overlay hidden">
+  <div class="tech-overlay-card">
+    <div class="tech-overlay-head">
+      <span class="tech-overlay-title"><span id="techTitleIcon"></span>科技树</span>
+      <button id="techCloseBtn" class="tech-close" aria-label="关闭"></button>
+    </div>
+    <div class="tech-overlay-body">
+      <svg id="techSvg" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid meet"></svg>
+    </div>
+    <div class="tech-overlay-foot">
+      <div class="tech-legend-wrap">
+        <span class="tech-legend"><i class="lg lg-good"></i>已解锁</span>
+        <span class="tech-legend"><i class="lg lg-ready"></i>可解锁</span>
+        <span class="tech-legend"><i class="lg lg-lock"></i>未解锁</span>
+        <span class="tech-legend"><i class="lg lg-max"></i>可升级</span>
+      </div>
+      <div class="tech-foot-right">
+        <span class="tech-hint">拖拽平移 · 滚轮缩放</span>
+        <button id="techResetBtn" class="tech-reset" aria-label="重置视图">重置视图</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 重新开始确认框（说明影响，防误触） -->
+<div id="confirmOverlay" class="confirm-overlay hidden">
+  <div class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+    <div class="confirm-title" id="confirmTitle">重新开始游戏？</div>
+    <div class="confirm-body">
+      <p>重新开始将清空以下全部进度：</p>
+      <ul>
+        <li>瓶盖 · 最佳 · 连击 · 次数</li>
+        <li>功能界面解锁 · 科技树等级 · 道具</li>
+        <li>成就 · 里程碑 · 累计统计</li>
+      </ul>
+      <p class="confirm-warn">游戏将回到初始开始界面，此操作无法撤销。</p>
+    </div>
+    <div class="confirm-actions">
+      <button id="confirmCancelBtn" class="confirm-btn confirm-cancel">取消</button>
+      <button id="confirmOkBtn" class="confirm-btn confirm-ok">确认重新开始</button>
+    </div>
+  </div>
+</div>
+
+<div id="soundPop" class="sound-pop hidden">
+  <div class="sound-pop-title">声音设置</div>
+  <div class="sound-section">
+    <div class="sound-section-label">音效</div>
+    <input type="range" id="volumeSlider" class="volume-slider" min="0" max="100" value="70">
+    <div class="sound-pop-row">
+      <span id="volumeLabel" class="volume-label">70%</span>
+      <button id="muteToggle" class="sound-mute-btn">静音</button>
+    </div>
+  </div>
+  <div class="sound-section">
+    <div class="sound-section-label">音乐</div>
+    <input type="range" id="musicSlider" class="volume-slider" min="0" max="100" value="50">
+    <div class="sound-pop-row">
+      <span id="musicLabel" class="volume-label">50%</span>
+      <button id="musicToggle" class="sound-mute-btn">开启</button>
+    </div>
+  </div>
+</div>
+<script src="js/pixel.js"></script>
+<script src="js/data.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>抛瓶旋转特效 · 原型（多轴空翻 + 挂机瓶降权）</title>
+<style>
+  :root { --bg:#0e1220; --panel:#171c30; --line:#2a3350; --txt:#dfe6f5; --dim:#8a94b0; --acc:#ffc857; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--txt);
+    font-family: "Courier New", SimSun, monospace; -webkit-font-smoothing: none;
+    display: flex; flex-direction: column; align-items: center; padding: 18px; gap: 14px;
+  }
+  h1 { font-size: 18px; margin: 0; letter-spacing: 1px; color: var(--acc); }
+  .sub { font-size: 12px; color: var(--dim); margin: 0 0 6px; text-align: center; }
+  #stage { position: relative; width: 900px; height: 620px; }
+  canvas { display: block; width: 900px; height: 620px; image-rendering: pixelated; border: 1px solid var(--line); background: #0a0e1a; }
+  .hud { position: absolute; top: 10px; left: 12px; font-size: 13px; color: var(--txt); pointer-events: none; text-shadow: 0 0 6px #000; }
+  .hud b { color: var(--acc); }
+  .panel {
+    width: 900px; background: var(--panel); border: 1px solid var(--line);
+    padding: 12px 14px; display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; font-size: 13px;
+  }
+  .grp { display: flex; align-items: center; gap: 6px; }
+  .grp .lbl { color: var(--dim); }
+  .btn {
+    background: #222a44; color: var(--txt); border: 1px solid var(--line);
+    padding: 6px 12px; font-family: inherit; font-size: 13px; cursor: pointer; -webkit-font-smoothing: none;
+  }
+  .btn:hover { border-color: var(--acc); }
+  .btn.on { background: #3a3f2a; border-color: var(--acc); color: var(--acc); }
+  .toggle { display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; color: var(--dim); }
+  .toggle input { accent-color: var(--acc); }
+  .toggle.on { color: var(--txt); }
+  .readout { margin-left: auto; font-size: 12px; color: var(--dim); text-align: right; line-height: 1.6; }
+  .readout span { color: var(--acc); }
+  .legend { width: 900px; font-size: 12px; color: var(--dim); line-height: 1.7; }
+  .legend .tag { display: inline-block; padding: 0 6px; border: 1px solid var(--line); color: var(--txt); margin-right: 4px; }
+</style>
+</head>
+<body>
+  <h1>抛瓶旋转特效 · 原型</h1>
+  <p class="sub">方案1 多轴空翻（空翻 φ + 螺旋 rot，透视压缩 scaleY=cos φ）＋ 方案2 挂机瓶降权（半透明、只做朴素旋转）</p>
+
+  <div id="stage">
+    <canvas id="world" width="900" height="620"></canvas>
+    <div class="hud">主角瓶 <b id="hudTier">连击 1-4</b> · 螺旋 <b id="hudSpin">2</b> 圈 · 空翻 <b id="hudTumble">1</b> 圈</div>
+  </div>
+
+  <div class="panel">
+    <div class="grp"><span class="lbl">连击档位</span>
+      <button class="btn on" data-tier="1">1-4</button>
+      <button class="btn" data-tier="5">5-9</button>
+      <button class="btn" data-tier="10">10-19</button>
+      <button class="btn" data-tier="20">20+</button>
+    </div>
+    <label class="toggle on"><input type="checkbox" id="chkMulti" checked>多瓶同屏</label>
+    <label class="toggle"><input type="checkbox" id="chkGhost">残影对比</label>
+    <label class="toggle on"><input type="checkbox" id="chkCycle" checked>自动循环档位</label>
+    <div class="readout" id="readout"></div>
+  </div>
+
+  <div class="legend">
+    <span class="tag">主角瓶</span>连击越高 → 螺旋圈数越多、空翻越烈、越提亮（绿→黄→红描边），空中压扁（透视）更明显。<br>
+    <span class="tag">挂机手瓶</span>半透明（alpha 0.4）、只做 2 圈朴素平面旋转、无空翻 —— 主次分明，多瓶同屏不乱。<br>
+    <span class="tag">残影对比</span>打开后主角瓶分裂出 4 帧渐隐残影，用于对照「增殖型特效」在多瓶下的杂乱感。
+  </div>
+
+<script>
+(() => {
+  'use strict';
+  // —— 与游戏一致的几何/投影常量（js/main.js 复刻）——
+  const W = 900, H = 620;
+  const PIXEL = 4;
+  const ISO_SIN = Math.SQRT1_2, ISO_COS = Math.SQRT1_2;
+  const TABLE_W = 880, TABLE_D = 600, OX = 450, OY = 315;
+  const BOTTOM_W = 18, TOP_W = 7, HALF_H = 60, BOTTLE_SCALE = 0.7;
+  const FLIP_DUR = 900, PEAK_H = 130;
+
+  const canvas = document.getElementById('world');
+  const dctx = canvas.getContext('2d');
+  dctx.imageSmoothingEnabled = false;
+  const buf = document.createElement('canvas');
+  buf.width = W / PIXEL; buf.height = H / PIXEL;
+  const ctx = buf.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  function project(wx, wy, h) {
+    const cx = wx - TABLE_W / 2, cy = wy - TABLE_D / 2;
+    return { x: cx + OX, y: OY - cy * ISO_SIN - h * ISO_COS };
+  }
+  function easeInOutQuad(t) { return t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t+2,2)/2; }
+  function easeOutCubic(t) { return 1 - Math.pow(1-t,3); }
+
+  // —— 档位配置：螺旋圈数 / 空翻圈数 / 提亮颜色 ——
+  const TIERS = {
+    1:  { label:'连击 1-4',  spin:2,   tumble:1, stroke:null, glow:null, heat:'基线' },
+    5:  { label:'连击 5-9',  spin:3.5, tumble:2, stroke:null, glow:null, heat:'微增' },
+    10: { label:'连击 10-19',spin:5,   tumble:3, stroke:'rgba(255,214,130,0.9)', glow:'rgba(255,200,87,0.45)', heat:'提亮' },
+    20: { label:'连击 20+',  spin:7,   tumble:4, stroke:'rgba(255,150,90,1)',   glow:'rgba(255,120,80,0.55)',  heat:'升温' },
+  };
+
+  // —— 瓶子对象 ——
+  function newBottle(manual) {
+    return {
+      manual, tier: 1,
+      fromWx: 440, fromWy: 280, toWx: 440, toWy: 280,
+      rot: 0, spinDir: 1, startRot: 0, endRot: 0,
+      phi: 0, tumbleTurns: 1,
+      h: 0, t0: performance.now(),
+    };
+  }
+  function relaunch(b) {
+    b.fromWx = b.toWx; b.fromWy = b.toWy;
+    b.toWx = 120 + Math.random() * 640;
+    b.toWy = 60 + Math.random() * 460;
+    b.spinDir = Math.random() < 0.5 ? 1 : -1;
+    b.startRot = b.rot;
+    const tier = TIERS[b.tier];
+    b.endRot = b.startRot + b.spinDir * tier.spin * Math.PI * 2;
+    b.tumbleTurns = tier.tumble;
+    b.t0 = performance.now();
+  }
+
+  const manualBottle = newBottle(true);
+  const handBottles = [];
+  for (let i = 0; i < 4; i++) { const b = newBottle(false); b.toWx = 0; b.toWy = 0; handBottles.push(b); }
+  handBottles.forEach((b, i) => { b.t0 = performance.now() - (i * 230); });
+
+  // —— 桌子 ——
+  function drawTable() {
+    const g = ctx.createLinearGradient(0, OY - 40, 0, OY + 40);
+    g.addColorStop(0, '#1b2740'); g.addColorStop(1, '#141b30');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(OX - TABLE_W/2, OY);
+    ctx.lineTo(OX, OY - TABLE_D/2 * ISO_SIN);
+    ctx.lineTo(OX + TABLE_W/2, OY);
+    ctx.lineTo(OX, OY + TABLE_D/2 * ISO_SIN);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(90,110,160,0.35)'; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+
+  // —— 瓶身（正视图 billboard，与游戏 drawBottleFront 同路径）——
+  function drawBottleFront(g, type, tier, highlight) {
+    const bw = BOTTOM_W, tw = TOP_W, hh = HALF_H;
+    const T = TIERS[tier];
+    // 连击提亮：高连击用暖色描边 + 光晕
+    if (T.glow) { g.shadowColor = T.glow; g.shadowBlur = 16; g.shadowOffsetY = 0; }
+    else { g.shadowColor = 'rgba(0,0,0,0.4)'; g.shadowBlur = 12; g.shadowOffsetY = 4; }
+    const fill = type === 'gold' ? 'rgba(255,196,90,0.34)' : 'rgba(150,205,255,0.30)';
+    const stroke = T.stroke || (type === 'gold' ? 'rgba(255,214,130,0.85)' : 'rgba(255,255,255,0.45)');
+    g.fillStyle = fill; g.strokeStyle = stroke; g.lineWidth = 3;
+    g.beginPath();
+    g.moveTo(-bw+8, hh); g.lineTo(bw-8, hh);
+    g.quadraticCurveTo(bw, hh, bw, hh-8); g.lineTo(bw, -14);
+    g.quadraticCurveTo(bw, -28, 7, -28); g.lineTo(7, -44); g.lineTo(tw, -44); g.lineTo(tw, -hh+0.8);
+    g.quadraticCurveTo(tw, -hh, tw-3, -hh); g.lineTo(-tw+3, -hh);
+    g.quadraticCurveTo(-tw, -hh, -tw, -hh+0.8); g.lineTo(-tw, -44); g.lineTo(-7, -44); g.lineTo(-7, -28);
+    g.quadraticCurveTo(-bw, -28, -bw, -14); g.lineTo(-bw, hh-8);
+    g.quadraticCurveTo(-bw, hh, -bw+8, hh);
+    g.closePath(); g.fill(); g.stroke();
+    g.shadowColor = 'transparent'; g.shadowBlur = 0; g.shadowOffsetY = 0;
+  }
+
+  // —— 影子 ——
+  function drawShadow(b) {
+    const p = project(b.wx, b.wy, 0);
+    const k = Math.max(0, 1 - b.h / PEAK_H);
+    const rw = 26 * BOTTLE_SCALE * (0.55 + 0.45 * k), rh = rw * 0.32;
+    ctx.globalAlpha = 0.32 * k;
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.ellipse(p.x, p.y, rw, rh, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // —— 画瓶：螺旋 rot（平面）+ 空翻 phi（绕水平轴，scaleY=cos φ 透视压缩）——
+  function drawBottle(b) {
+    const p = project(b.wx, b.wy, b.h);
+    const s = (1 + (b.h / PEAK_H) * 0.3) * BOTTLE_SCALE;
+    // 空翻透视压缩：edge-on（φ=90°/270°）压成一条缝，翻到背面变暗
+    const cosPhi = Math.cos(b.phi);
+    const scaleY = Math.max(0.10, Math.abs(cosPhi));
+    const backDim = cosPhi < 0 ? 0.65 : 1;          // 翻到背面略微变暗
+    const alpha = b.manual ? backDim : 0.40;         // 挂机瓶整体降权半透明
+    ctx.save();
+    ctx.translate(p.x, p.y - HALF_H * s);            // 立姿中心在脚点上方
+    ctx.scale(s, s);
+    ctx.rotate(b.rot);                               // 螺旋（平面 z 轴）
+    ctx.globalAlpha = alpha;
+    ctx.scale(1, scaleY);                            // 空翻透视（水平轴）
+    drawBottleFront(ctx, b.manual ? 'glass' : 'glass', b.manual ? b.tier : 1, false);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  // —— 残影（方案3 对比用：增殖型，保留近 N 帧快照）——
+  const ghostPool = [];
+  function recordGhost(b) {
+    if (!b.manual) return;
+    ghostPool.unshift({ wx:b.wx, wy:b.wy, h:b.h, rot:b.rot, phi:b.phi, t0:performance.now() });
+    if (ghostPool.length > 5) ghostPool.pop();
+  }
+  function drawGhosts() {
+    const now = performance.now();
+    for (let i = 0; i < ghostPool.length; i++) {
+      const g = ghostPool[i];
+      const age = (now - g.t0) / 160; if (age >= 1) continue;
+      const p = project(g.wx, g.wy, g.h);
+      const s = (1 + (g.h / PEAK_H) * 0.3) * BOTTLE_SCALE;
+      const scaleY = Math.max(0.10, Math.abs(Math.cos(g.phi)));
+      ctx.save();
+      ctx.translate(p.x, p.y - HALF_H * s);
+      ctx.scale(s, s); ctx.rotate(g.rot);
+      ctx.globalAlpha = (1 - age) * 0.28;
+      ctx.scale(1, scaleY);
+      drawBottleFront(ctx, 'glass', 10, false);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // —— 状态 ——
+  let tier = 1, showMulti = true, showGhost = false, autoCycle = true;
+  let lastCycle = performance.now();
+
+  function update(now) {
+    // 主角瓶
+    const mb = manualBottle;
+    mb.tier = tier;
+    let t = (now - mb.t0) / FLIP_DUR;
+    if (t >= 1) { mb.rot = mb.endRot; mb.phi = mb.tumbleTurns * Math.PI * 2; relaunch(mb); t = 0; }
+    mb.wx = mb.fromWx + (mb.toWx - mb.fromWx) * easeInOutQuad(t);
+    mb.wy = mb.fromWy + (mb.toWy - mb.fromWy) * easeInOutQuad(t);
+    mb.h = PEAK_H * Math.sin(Math.PI * t);
+    mb.rot = mb.startRot + (mb.endRot - mb.startRot) * easeOutCubic(t);
+    mb.phi = mb.tumbleTurns * Math.PI * 2 * easeOutCubic(t);
+
+    // 挂机瓶：朴素 2 圈平面旋转，无空翻
+    for (const b of handBottles) {
+      let tt = (now - b.t0) / FLIP_DUR;
+      if (tt >= 1) { b.rot = b.endRot; relaunch(b); tt = 0; }
+      b.wx = b.fromWx + (b.toWx - b.fromWx) * easeInOutQuad(tt);
+      b.wy = b.fromWy + (b.toWy - b.fromWy) * easeInOutQuad(tt);
+      b.h = PEAK_H * Math.sin(Math.PI * tt);
+      b.rot = b.startRot + (b.endRot - b.startRot) * easeOutCubic(tt);
+      b.phi = 0; // 无空翻
+    }
+
+    // 自动循环档位
+    if (autoCycle && now - lastCycle > 2600) {
+      lastCycle = now;
+      const keys = [1, 5, 10, 20];
+      tier = keys[(keys.indexOf(tier) + 1) % keys.length];
+      syncButtons();
+    }
+  }
+
+  function draw() {
+    ctx.setTransform(1/PIXEL, 0, 0, 1/PIXEL, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    drawTable();
+    if (showGhost) drawGhosts();
+    // 深度排序
+    const all = showMulti ? [manualBottle, ...handBottles] : [manualBottle];
+    const sorted = all.slice().sort((a, b) => b.wy - a.wy);
+    for (const b of sorted) { drawShadow(b); drawBottle(b); }
+
+    dctx.setTransform(1, 0, 0, 1, 0, 0);
+    dctx.clearRect(0, 0, W, H);
+    dctx.drawImage(buf, 0, 0, buf.width, buf.height, 0, 0, W, H);
+  }
+
+  // —— HUD 读值 ——
+  const hudTier = document.getElementById('hudTier');
+  const hudSpin = document.getElementById('hudSpin');
+  const hudTumble = document.getElementById('hudTumble');
+  const readout = document.getElementById('readout');
+  function syncHUD() {
+    const T = TIERS[tier];
+    hudTier.textContent = T.label;
+    hudSpin.textContent = T.spin;
+    hudTumble.textContent = T.tumble;
+    readout.innerHTML =
+      '螺旋 <span>'+T.spin+'</span> 圈 · 空翻 <span>'+T.tumble+'</span> 圈 · 效果 <span>'+T.heat+'</span>' +
+      ' · 同屏 <span>'+(showMulti?'4 挂机瓶':'仅主角')+'</span>' +
+      (showGhost ? ' · <span>残影开</span>' : '');
+  }
+
+  // —— 控件 ——
+  function syncButtons() {
+    document.querySelectorAll('.btn[data-tier]').forEach(b => b.classList.toggle('on', +b.dataset.tier === tier));
+    syncHUD();
+  }
+  document.querySelectorAll('.btn[data-tier]').forEach(b => {
+    b.addEventListener('click', () => { tier = +b.dataset.tier; autoCycle = false; document.getElementById('chkCycle').checked = false; syncButtons(); });
+  });
+  document.getElementById('chkMulti').addEventListener('change', e => { showMulti = e.target.checked; syncHUD(); });
+  document.getElementById('chkGhost').addEventListener('change', e => { showGhost = e.target.checked; syncHUD(); });
+  document.getElementById('chkCycle').addEventListener('change', e => { autoCycle = e.target.checked; lastCycle = performance.now(); });
+
+  // —— 主循环 ——
+  function loop(now) {
+    update(now);
+    if (showGhost) recordGhost(manualBottle);
+    draw();
+    requestAnimationFrame(loop);
+  }
+  syncButtons();
+  relaunch(manualBottle);
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

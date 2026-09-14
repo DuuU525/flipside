@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>连击倒计时表现 · 原型对比</title>
+<style>
+  body{background:#0d1524;color:#e8eef7;font-family:"Courier New","SimSun","NSimSun",monospace;
+       -webkit-font-smoothing:none;margin:0;padding:24px;display:flex;flex-direction:column;gap:22px;align-items:center}
+  .row{display:flex;flex-direction:column;align-items:center;gap:6px}
+  .label{font-size:13px;color:#8fa0b8;letter-spacing:1px}
+  canvas{image-rendering:pixelated;image-rendering:crisp-edges;border:1px solid rgba(255,255,255,.08);background:#0e1a30}
+</style>
+</head>
+<body>
+<h1 style="font-size:17px;margin:0 0 4px">连击消失进度 · 4 方案（自动循环 4 秒衰减）</h1>
+<div class="row"><span class="label">方案A · 分段能量格</span><canvas id="a" width="560" height="80"></canvas></div>
+<div class="row"><span class="label">方案B · 秒数倒计时 + 能量条</span><canvas id="b" width="560" height="80"></canvas></div>
+<div class="row"><span class="label">方案C · 火焰连击条</span><canvas id="c" width="560" height="80"></canvas></div>
+<div class="row"><span class="label">方案D · 连击珠逐格熄灭</span><canvas id="d" width="560" height="80"></canvas></div>
+<script>
+'use strict';
+// 像素风格手绘工具
+function pxRect(g, x, y, w, h, col){ g.fillStyle = col; g.fillRect(x, y, w, h); }
+function hardShadow(g, x, y, w, h){ pxRect(g, x+4, y+4, w, h, 'rgba(0,0,0,0.5)'); }
+
+// 16x16 火苗(字符串网格, 复用游戏 PX 调色板语义: Y金 R红 H火橙 D暗红)
+const FIRE = [
+  '................',
+  '.......Y........',
+  '......YR........',
+  '.....YRR........',
+  '....YRRRR.......',
+  '....YRRRRR......',
+  '...YRRRRRRH.....',
+  '...YRRRRRHHH....',
+  '..YRRRRHHHHH....',
+  '..YRRRHHHHHH....',
+  '.YRRRHHHHHHHD...',
+  '.YRRHHHHHHHDD...',
+  '.YHHHHHHHDDDD...',
+  '..HHHHHDDDDD....',
+  '...HHDDDDD......',
+  '................',
+];
+const PX = { Y:'#ffd166', R:'#ff6b6b', H:'#e06a00', D:'#a83232' };
+function drawFire(g, x, y, cell){
+  for(let r=0;r<16;r++) for(let c=0;c<16;c++){
+    const ch = FIRE[r][c]; if(ch==='.') continue;
+    pxRect(g, x+c*cell, y+r*cell, cell, cell, PX[ch]);
+  }
+}
+
+function colFor(ratio, now){
+  if(ratio < 0.25) return (Math.floor(now/180)%2) ? '#ff6b6b' : '#ff9f43';  // 快耗尽闪烁
+  if(ratio < 0.5) return '#ff9f43';
+  return '#ffd166';
+}
+
+// ---------- A 分段能量格 ----------
+function drawA(g, ratio, now){
+  const N=12, cellW=12, cellH=18, gap=3, pad=10;
+  const totalW = N*cellW + (N-1)*gap + pad*2;
+  const totalH = cellH + pad*2;
+  const x = (560-totalW)/2, y = (80-totalH)/2;
+  hardShadow(g, x, y, totalW, totalH);
+  pxRect(g, x, y, totalW, totalH, '#141f33');
+  pxRect(g, x, y, totalW, totalH, '#141f33');
+  // 描边
+  g.strokeStyle='#3a4a63'; g.lineWidth=2; g.strokeRect(x+1, y+1, totalW-2, totalH-2);
+  const lit = Math.round(ratio*N);
+  const col = colFor(ratio, now);
+  for(let i=0;i<lit;i++){
+    const cx = x+pad + i*(cellW+gap);
+    pxRect(g, cx, y+pad, cellW, cellH, col);
+    // 亮格顶部高光
+    pxRect(g, cx, y+pad, cellW, 3, 'rgba(255,255,255,0.35)');
+  }
+  // 未亮格暗底
+  for(let i=lit;i<N;i++){
+    const cx = x+pad + i*(cellW+gap);
+    pxRect(g, cx, y+pad, cellW, cellH, '#1b2a44');
+  }
+}
+
+// ---------- B 秒数倒计时 + 能量条 ----------
+function drawB(g, ratio, now){
+  const barW=300, barH=8, pad=6;
+  const x=(560-barW)/2, y=44;
+  // 秒数(取 0~4s 窗口)
+  const remainSec = (ratio*4).toFixed(1);
+  g.font='700 26px "Courier New", monospace';
+  g.textAlign='center'; g.textBaseline='bottom';
+  const col=colFor(ratio,now);
+  g.fillStyle='rgba(0,0,0,0.6)'; g.fillText(remainSec+'s', 560/2+2, y-6+2);
+  g.fillStyle=col; g.fillText(remainSec+'s', 560/2, y-6);
+  // 条
+  hardShadow(g, x, y, barW+pad*2, barH+pad*2);
+  pxRect(g, x, y, barW+pad*2, barH+pad*2, '#141f33');
+  g.strokeStyle='#3a4a63'; g.lineWidth=2; g.strokeRect(x+1,y+1,barW+pad*2-2,barH+pad*2-2);
+  pxRect(g, x+pad, y+pad, Math.round(barW*ratio), barH, col);
+  pxRect(g, x+pad, y+pad, Math.round(barW*ratio), 2, 'rgba(255,255,255,0.3)');
+}
+
+// ---------- C 火焰连击条 ----------
+function drawC(g, ratio, now){
+  const iconCell=3; // 16x16 -> 48px
+  const barW=280, barH=10, pad=6, gap=10;
+  const totalW = 16*iconCell + gap + barW + pad*2;
+  const x=(560-totalW)/2, y=32;
+  const col=colFor(ratio,now);
+  // 火焰图标
+  drawFire(g, x, y+pad-2, iconCell);
+  // 条
+  const bx = x+16*iconCell+gap, by=y+pad-2;
+  hardShadow(g, bx, by, barW+pad*2, barH+pad*2);
+  pxRect(g, bx, by, barW+pad*2, barH+pad*2, '#141f33');
+  g.strokeStyle='#3a4a63'; g.lineWidth=2; g.strokeRect(bx+1,by+1,barW+pad*2-2,barH+pad*2-2);
+  const w = Math.round(barW*ratio);
+  pxRect(g, bx+pad, by+pad, w, barH, col);
+  // 末端亮斑(余烬)
+  if(w>2) pxRect(g, bx+pad+w-2, by+pad, 2, barH, '#ffffff');
+  // 快耗尽整条脉动
+  if(ratio<0.25 && Math.floor(now/180)%2) pxRect(g, bx+pad, by+pad, w, barH, '#ff6b6b');
+}
+
+// ---------- D 连击珠逐格熄灭 ----------
+function drawD(g, ratio, now){
+  const N=10, cell=16, gap=8, pad=10;
+  const totalW = N*cell+(N-1)*gap+pad*2, totalH=cell+pad*2;
+  const x=(560-totalW)/2, y=(80-totalH)/2;
+  hardShadow(g, x, y, totalW, totalH);
+  pxRect(g, x, y, totalW, totalH, '#141f33');
+  g.strokeStyle='#3a4a63'; g.lineWidth=2; g.strokeRect(x+1,y+1,totalW-2,totalH-2);
+  const lit = Math.round(ratio*N);
+  const col=colFor(ratio,now);
+  for(let i=0;i<N;i++){
+    const cx=x+pad+i*(cell+gap), cy=y+pad;
+    if(i<lit){ // 亮珠
+      pxRect(g,cx,cy,cell,cell,col);
+      pxRect(g,cx,cy,cell,3,'rgba(255,255,255,0.35)');
+      pxRect(g,cx+1,cy+1,cell-2,cell-2,'rgba(0,0,0,0)');
+    } else {   // 已熄灭
+      pxRect(g,cx,cy,cell,cell,'#1b2a44');
+      // 熄灭瞬间白闪(刚熄的那颗)
+      if(i===lit) pxRect(g,cx,cy,cell,cell,'rgba(255,255,255,'+(0.6*Math.abs(Math.sin(now/90)))+')');
+    }
+  }
+}
+
+const drawFns = { a:drawA, b:drawB, c:drawC, d:drawD };
+function tick(){
+  const now = performance.now();
+  const t = (now % 4000) / 4000;   // 4 秒循环
+  const ratio = 1 - t;
+  for(const [id,fn] of Object.entries(drawFns)){
+    const cv = document.getElementById(id);
+    const g = cv.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    g.clearRect(0,0,cv.width,cv.height);
+    fn(g, ratio, now);
+  }
+  requestAnimationFrame(tick);
+}
+tick();
+</script>
+</body>
+</html>

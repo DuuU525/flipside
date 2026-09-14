@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>深色冰面桌面 + 瓶子凸显对比</title>
+<style>
+  body { background:#11151f; color:#dfe7f3; font-family:"Microsoft YaHei",sans-serif; margin:0; padding:24px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  p.sub { color:#8fa0b8; font-size:13px; margin:0 0 20px; }
+  .row { margin-bottom:28px; }
+  .label { font-size:15px; font-weight:700; margin-bottom:8px; color:#dfe7f3; }
+  .label small { color:#8fa0b8; font-weight:400; margin-left:8px; }
+  canvas { display:block; border:1px solid #2a3446; }
+</style>
+</head>
+<body>
+  <h1>深色冰面桌面 + 瓶子凸显</h1>
+  <p class="sub">每张都叠加了真实玻璃瓶（浅蓝玻璃 + 白描边 + 光晕）与黄金/翡翠瓶，直接看「瓶子是否从桌面跳出来」。</p>
+
+  <div class="row"><div class="label">方案 B1 · 深蓝冰面<small>深蓝渐变 + 冷裂纹，玻璃瓶白光晕最凸显</small></div><canvas id="b1" width="900" height="620"></canvas></div>
+  <div class="row"><div class="label">方案 B2 · 墨蓝冰面<small>更深的墨蓝 + 强反光，对比最强</small></div><canvas id="b2" width="900" height="620"></canvas></div>
+  <div class="row"><div class="label">参照 · 原木纹 + 瓶子<small>当前版本（暖色桌面，玻璃瓶冷色也凸出）</small></div><canvas id="d" width="900" height="620"></canvas></div>
+
+<script>
+const W = 900, H = 620, TW = 880, TD = 600;
+const ISO = Math.SQRT1_2;
+function project(wx, wy, h) {
+  const cx = wx - TW / 2, cy = wy - TD / 2;
+  return { x: cx + 450, y: 315 - cy * ISO - h * ISO };
+}
+function topPath(tc, c) {
+  tc.beginPath(); tc.moveTo(c.bl.x, c.bl.y); tc.lineTo(c.br.x, c.br.y); tc.lineTo(c.fr.x, c.fr.y); tc.lineTo(c.fl.x, c.fl.y); tc.closePath();
+}
+let seed = 7;
+function rnd(){ seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; }
+function corners() {
+  return { bl: project(0, TD, 0), br: project(TW, TD, 0), fr: project(TW, 0, 0), fl: project(0, 0, 0) };
+}
+
+// ---- 瓶子绘制(复刻 drawBottleFront 形状) ----
+const BOTTOM_W = 18, TOP_W = 7, HALF_H = 60, BOTTLE_SCALE = 0.7;
+const BOTTLE_TYPES = {
+  glass: { fill: 'rgba(150,205,255,0.30)', stroke: 'rgba(255,255,255,0.45)', shadow: 'rgba(0,0,0,0.4)', blur: 12 },
+  gold:  { fill: 'rgba(255,196,90,0.34)',  stroke: 'rgba(255,214,130,0.85)', shadow: 'rgba(255,200,87,0.9)', blur: 18 },
+  jade:  { fill: 'rgba(90,230,150,0.34)',  stroke: 'rgba(130,240,180,0.85)', shadow: 'rgba(90,230,150,0.9)', blur: 20 },
+};
+function drawBottleFront(tc, type) {
+  const bw = BOTTOM_W, tw = TOP_W, hh = HALF_H;
+  const bt = BOTTLE_TYPES[type];
+  tc.shadowColor = bt.shadow; tc.shadowBlur = bt.blur; tc.shadowOffsetY = 4;
+  tc.fillStyle = bt.fill; tc.strokeStyle = bt.stroke; tc.lineWidth = 3;
+  tc.beginPath();
+  tc.moveTo(-bw + 8, hh); tc.lineTo(bw - 8, hh); tc.quadraticCurveTo(bw, hh, bw, hh - 8);
+  tc.lineTo(bw, -14); tc.quadraticCurveTo(bw, -28, 7, -28); tc.lineTo(7, -44); tc.lineTo(tw, -44);
+  tc.lineTo(tw, -hh + 0.8); tc.quadraticCurveTo(tw, -hh, tw - 3, -hh); tc.lineTo(-tw + 3, -hh);
+  tc.quadraticCurveTo(-tw, -hh, -tw, -hh + 0.8); tc.lineTo(-tw, -44); tc.lineTo(-7, -44); tc.lineTo(-7, -28);
+  tc.quadraticCurveTo(-bw, -28, -bw, -14); tc.lineTo(-bw, hh - 8); tc.quadraticCurveTo(-bw, hh, -bw + 8, hh);
+  tc.closePath(); tc.fill(); tc.stroke();
+  tc.shadowColor = 'transparent'; tc.shadowBlur = 0; tc.shadowOffsetY = 0;
+}
+function drawShadow(tc, wx, wy) {
+  const p = project(wx, wy, 0);
+  tc.save(); tc.globalAlpha = 0.30; tc.fillStyle = '#000';
+  tc.beginPath(); tc.ellipse(p.x, p.y, 26 * BOTTLE_SCALE, 9 * BOTTLE_SCALE, 0, 0, Math.PI * 2); tc.fill(); tc.restore();
+}
+function drawBottle(tc, wx, wy, type, state) {
+  const p = project(wx, wy, 0);
+  const s = BOTTLE_SCALE;
+  const lift = state === 'lying' ? BOTTOM_W * s : HALF_H * s;
+  const rot = state === 'upright' ? 0 : (state === 'inverted' ? Math.PI : Math.PI/2);
+  tc.save();
+  tc.translate(p.x, p.y - lift);
+  tc.scale(s, s); tc.rotate(rot);
+  drawBottleFront(tc, type);
+  tc.restore();
+}
+// 摆放瓶子(玻璃居多 + 一个黄金 + 一个翡翠, 测对比)
+function drawBottles(tc) {
+  const arr = [
+    [280, 200, 'glass', 'upright'],
+    [380, 300, 'glass', 'lying'],
+    [520, 250, 'glass', 'inverted'],
+    [620, 380, 'glass', 'upright'],
+    [440, 460, 'gold', 'upright'],
+    [320, 480, 'jade', 'inverted'],
+  ];
+  for (const [wx, wy, t, s] of arr) { drawShadow(tc, wx, wy); drawBottle(tc, wx, wy, t, s); }
+}
+
+// ---- 桌面 ----
+function drawCracks(tc, color, count) {
+  const c = corners();
+  tc.save(); topPath(tc, c); tc.clip();
+  tc.strokeStyle = color; tc.lineWidth = 1.5;
+  for (let i = 0; i < count; i++) {
+    const edge = rnd();
+    let x, y;
+    if (edge < 0.25) { x = rnd() * W; y = 315 - (rnd() * TD - 300) * ISO; }
+    else if (edge < 0.5) { x = 450 - TW/2; y = 315 - (rnd() * TD - 300) * ISO; }
+    else if (edge < 0.75) { x = 450 + TW/2; y = 315 - (rnd() * TD - 300) * ISO; }
+    else { x = rnd() * W; y = 315 + 300 * ISO; }
+    tc.beginPath(); tc.moveTo(x, y);
+    const segs = 2 + (rnd() * 2 | 0);
+    for (let s = 0; s < segs; s++) { x += (rnd()-0.5)*160; y += (rnd()-0.5)*120; tc.lineTo(x, y); }
+    tc.stroke();
+  }
+  tc.restore();
+}
+function drawTableBase(tc, top1, top2, side, hi) {
+  tc.fillStyle = '#0d1524'; tc.fillRect(0, 0, W, H);
+  const c = corners(); const thickness = 30;
+  const grad = tc.createLinearGradient(0, c.bl.y, 0, c.fl.y);
+  grad.addColorStop(0, top1); grad.addColorStop(1, top2);
+  tc.fillStyle = grad; topPath(tc, c); tc.fill();
+  tc.fillStyle = side;
+  tc.beginPath(); tc.moveTo(c.fl.x, c.fl.y); tc.lineTo(c.fr.x, c.fr.y);
+  tc.lineTo(c.fr.x, c.fr.y + thickness); tc.lineTo(c.fl.x, c.fl.y + thickness);
+  tc.closePath(); tc.fill();
+  tc.strokeStyle = hi; tc.lineWidth = 2;
+  tc.beginPath(); tc.moveTo(c.bl.x, c.bl.y); tc.lineTo(c.br.x, c.br.y); tc.stroke();
+}
+function drawWood(tc) {
+  tc.fillStyle = '#0d1524'; tc.fillRect(0, 0, W, H);
+  const c = corners(); const thickness = 30;
+  const grad = tc.createLinearGradient(0, c.bl.y, 0, c.fl.y);
+  grad.addColorStop(0, '#a9713f'); grad.addColorStop(1, '#8a562b');
+  tc.fillStyle = grad; topPath(tc, c); tc.fill();
+  tc.fillStyle = '#5e3720';
+  tc.beginPath(); tc.moveTo(c.fl.x, c.fl.y); tc.lineTo(c.fr.x, c.fr.y);
+  tc.lineTo(c.fr.x, c.fr.y + thickness); tc.lineTo(c.fl.x, c.fl.y + thickness);
+  tc.closePath(); tc.fill();
+  tc.strokeStyle = 'rgba(255,255,255,0.18)'; tc.lineWidth = 2;
+  tc.beginPath(); tc.moveTo(c.bl.x, c.bl.y); tc.lineTo(c.br.x, c.br.y); tc.stroke();
+  tc.save(); topPath(tc, c); tc.clip();
+  tc.strokeStyle = 'rgba(60,35,15,0.16)'; tc.lineWidth = 2;
+  for (let wy = 24; wy < TD; wy += 48) {
+    const p1 = project(0, wy, 0), p2 = project(TW, wy, 0);
+    tc.beginPath(); tc.moveTo(p1.x, p1.y); tc.lineTo(p2.x, p2.y); tc.stroke();
+  }
+  tc.restore();
+}
+
+// B1 深蓝冰面
+(function () {
+  const tc = document.getElementById('b1').getContext('2d');
+  seed = 7;
+  drawTableBase(tc, '#2f5f94', '#16304f', '#0f2440', 'rgba(200,230,255,0.4)');
+  drawCracks(tc, 'rgba(210,235,255,0.35)', 8);
+  drawCracks(tc, 'rgba(110,170,220,0.20)', 5);
+  drawBottles(tc);
+})();
+
+// B2 墨蓝冰面(更深)
+(function () {
+  const tc = document.getElementById('b2').getContext('2d');
+  seed = 11;
+  drawTableBase(tc, '#1f3d63', '#0c1e38', '#081527', 'rgba(190,220,255,0.5)');
+  drawCracks(tc, 'rgba(200,230,255,0.42)', 9);
+  drawCracks(tc, 'rgba(90,150,210,0.22)', 5);
+  drawBottles(tc);
+})();
+
+// 参照 木纹
+(function () {
+  const tc = document.getElementById('d').getContext('2d');
+  drawWood(tc);
+  drawBottles(tc);
+})();
+</script>
+</body>
+</html>

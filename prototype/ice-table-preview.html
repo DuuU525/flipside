@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>冰面桌面效果图</title>
+<style>
+  body { background:#11151f; color:#dfe7f3; font-family:"Microsoft YaHei",sans-serif; margin:0; padding:24px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  p.sub { color:#8fa0b8; font-size:13px; margin:0 0 20px; }
+  .row { margin-bottom:28px; }
+  .label { font-size:15px; font-weight:700; margin-bottom:8px; color:#dfe7f3; }
+  .label small { color:#8fa0b8; font-weight:400; margin-left:8px; }
+  canvas { display:block; border:1px solid #2a3446; }
+</style>
+</head>
+<body>
+  <h1>冰面桌面方案（贴合「冷却结冰」主题）</h1>
+  <p class="sub">三方案并排对比，均为等距投影桌面 880×600，四周深色背景为舞台底色。原木纹方案一并列出作参照。</p>
+
+  <div class="row"><div class="label">方案 A · 霜白冰面<small>浅蓝白渐变 + 冰裂纹</small></div><canvas id="a" width="900" height="620"></canvas></div>
+  <div class="row"><div class="label">方案 B · 冰川深蓝<small>深蓝渐变 + 冷色裂纹 + 高光反射</small></div><canvas id="b" width="900" height="620"></canvas></div>
+  <div class="row"><div class="label">方案 C · 霜花冰面<small>霜白底 + 六角霜花/雪花点缀</small></div><canvas id="c" width="900" height="620"></canvas></div>
+  <div class="row"><div class="label">参照 · 原木纹桌面<small>当前版本</small></div><canvas id="d" width="900" height="620"></canvas></div>
+
+<script>
+const W = 900, H = 620, TW = 880, TD = 600;
+const ISO = Math.SQRT1_2;
+function project(wx, wy, h) {
+  const cx = wx - TW / 2, cy = wy - TD / 2;
+  return { x: cx + 450, y: 315 - cy * ISO - h * ISO };
+}
+function topPath(tc, bl, br, fr, fl) {
+  tc.beginPath(); tc.moveTo(bl.x, bl.y); tc.lineTo(br.x, br.y); tc.lineTo(fr.x, fr.y); tc.lineTo(fl.x, fl.y); tc.closePath();
+}
+// 固定种子随机(裂纹可复现)
+let seed = 7;
+function rnd(){ seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; }
+
+function corners() {
+  return {
+    bl: project(0, TD, 0), br: project(TW, TD, 0),
+    fr: project(TW, 0, 0), fl: project(0, 0, 0),
+  };
+}
+
+// 冰裂纹(折线, 从边缘向内蔓延)
+function drawCracks(tc, c, color, count) {
+  const { bl, br, fr, fl } = c;
+  tc.save();
+  topPath(tc, bl, br, fr, fl); tc.clip();
+  tc.strokeStyle = color;
+  tc.lineWidth = 1.5;
+  for (let i = 0; i < count; i++) {
+    // 起点在顶面边缘随机
+    const edge = rnd();
+    let x, y;
+    if (edge < 0.25) { x = rnd() * W; y = 315 - (rnd() * TD - 300) * ISO; }
+    else if (edge < 0.5) { const wy = rnd() * TD; x = (0) + 450 - TW/2; y = 315 - (wy - 300) * ISO; }
+    else if (edge < 0.75) { const wy = rnd() * TD; x = 450 + TW/2; y = 315 - (wy - 300) * ISO; }
+    else { x = rnd() * W; y = 315 + 300 * ISO; }
+    tc.beginPath();
+    tc.moveTo(x, y);
+    const segs = 2 + (rnd() * 2 | 0);
+    for (let s = 0; s < segs; s++) {
+      x += (rnd() - 0.5) * 160; y += (rnd() - 0.5) * 120;
+      tc.lineTo(x, y);
+    }
+    tc.stroke();
+  }
+  tc.restore();
+}
+
+// 霜花(六角雪花简形)
+function snowflake(tc, x, y, r, color) {
+  tc.save();
+  tc.strokeStyle = color; tc.fillStyle = color; tc.lineWidth = 1.5;
+  for (let k = 0; k < 6; k++) {
+    const a = k * Math.PI / 3;
+    tc.beginPath();
+    tc.moveTo(x, y); tc.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+    tc.stroke();
+    // 小分支
+    const bx = x + Math.cos(a) * r * 0.6, by = y + Math.sin(a) * r * 0.6;
+    for (const s of [-0.6, 0.6]) {
+      const a2 = a + s;
+      tc.beginPath();
+      tc.moveTo(bx, by); tc.lineTo(bx + Math.cos(a2) * r * 0.35, by + Math.sin(a2) * r * 0.35);
+      tc.stroke();
+    }
+  }
+  tc.restore();
+}
+
+function drawIceTable(tc, top1, top2, side, highlight, crackColor) {
+  tc.fillStyle = '#0d1524';
+  tc.fillRect(0, 0, W, H);
+  const c = corners();
+  const thickness = 30;
+  // 顶面冰色渐变
+  const grad = tc.createLinearGradient(0, c.bl.y, 0, c.fl.y);
+  grad.addColorStop(0, top1);
+  grad.addColorStop(1, top2);
+  tc.fillStyle = grad;
+  topPath(tc, c.bl, c.br, c.fr, c.fl); tc.fill();
+  // 前侧面(桌板厚度, 冰蓝)
+  tc.fillStyle = side;
+  tc.beginPath();
+  tc.moveTo(c.fl.x, c.fl.y); tc.lineTo(c.fr.x, c.fr.y);
+  tc.lineTo(c.fr.x, c.fr.y + thickness); tc.lineTo(c.fl.x, c.fl.y + thickness);
+  tc.closePath(); tc.fill();
+  // 后缘高光
+  tc.strokeStyle = highlight;
+  tc.lineWidth = 2;
+  tc.beginPath(); tc.moveTo(c.bl.x, c.bl.y); tc.lineTo(c.br.x, c.br.y); tc.stroke();
+}
+
+function drawWoodTable(tc) {
+  tc.fillStyle = '#0d1524';
+  tc.fillRect(0, 0, W, H);
+  const c = corners();
+  const thickness = 30;
+  const grad = tc.createLinearGradient(0, c.bl.y, 0, c.fl.y);
+  grad.addColorStop(0, '#a9713f');
+  grad.addColorStop(1, '#8a562b');
+  tc.fillStyle = grad;
+  topPath(tc, c.bl, c.br, c.fr, c.fl); tc.fill();
+  tc.fillStyle = '#5e3720';
+  tc.beginPath();
+  tc.moveTo(c.fl.x, c.fl.y); tc.lineTo(c.fr.x, c.fr.y);
+  tc.lineTo(c.fr.x, c.fr.y + thickness); tc.lineTo(c.fl.x, c.fl.y + thickness);
+  tc.closePath(); tc.fill();
+  tc.strokeStyle = 'rgba(255,255,255,0.18)';
+  tc.lineWidth = 2;
+  tc.beginPath(); tc.moveTo(c.bl.x, c.bl.y); tc.lineTo(c.br.x, c.br.y); tc.stroke();
+  tc.save(); topPath(tc, c.bl, c.br, c.fr, c.fl); tc.clip();
+  tc.strokeStyle = 'rgba(60,35,15,0.16)'; tc.lineWidth = 2;
+  for (let wy = 24; wy < TD; wy += 48) {
+    const p1 = project(0, wy, 0), p2 = project(TW, wy, 0);
+    tc.beginPath(); tc.moveTo(p1.x, p1.y); tc.lineTo(p2.x, p2.y); tc.stroke();
+  }
+  tc.fillStyle = 'rgba(60,35,15,0.12)';
+  for (const [kx, ky] of [[0.22,0.30],[0.68,0.62],[0.45,0.80],[0.82,0.25]]) {
+    const p = project(kx * TW, ky * TD, 0);
+    tc.beginPath(); tc.ellipse(p.x, p.y, 10, 5, 0, 0, Math.PI * 2); tc.fill();
+  }
+  tc.restore();
+}
+
+// 方案 A: 霜白冰面 + 裂纹
+(function () {
+  const tc = document.getElementById('a').getContext('2d');
+  seed = 7;
+  drawIceTable(tc, '#d6eaf7', '#a8cde8', '#5f87b4', 'rgba(255,255,255,0.55)', '');
+  drawCracks(tc, corners(), 'rgba(255,255,255,0.55)', 7);
+  drawCracks(tc, corners(), 'rgba(70,120,175,0.30)', 5);
+})();
+
+// 方案 B: 冰川深蓝 + 裂纹 + 高光
+(function () {
+  const tc = document.getElementById('b').getContext('2d');
+  seed = 13;
+  drawIceTable(tc, '#3a6ea5', '#1c3d66', '#132c4e', 'rgba(200,230,255,0.45)', '');
+  drawCracks(tc, corners(), 'rgba(210,235,255,0.40)', 8);
+  drawCracks(tc, corners(), 'rgba(120,180,230,0.22)', 6);
+})();
+
+// 方案 C: 霜白 + 霜花
+(function () {
+  const tc = document.getElementById('c').getContext('2d');
+  seed = 21;
+  drawIceTable(tc, '#e4f1fb', '#bcd9f0', '#6a91bb', 'rgba(255,255,255,0.6)', '');
+  drawCracks(tc, corners(), 'rgba(255,255,255,0.4)', 4);
+  const c = corners();
+  tc.save(); topPath(tc, c.bl, c.br, c.fr, c.fl); tc.clip();
+  // 顶面范围内撒霜花(用等距反向映射到世界坐标再投影)
+  for (let i = 0; i < 18; i++) {
+    const wx = 120 + rnd() * (TW - 240);
+    const wy = 90 + rnd() * (TD - 180);
+    const p = project(wx, wy, 0);
+    snowflake(tc, p.x, p.y, 10 + rnd() * 12, 'rgba(255,255,255,0.55)');
+  }
+  tc.restore();
+})();
+
+// 参照: 原木纹
+(function () {
+  const tc = document.getElementById('d').getContext('2d');
+  drawWoodTable(tc);
+})();
+</script>
+</body>
+</html>

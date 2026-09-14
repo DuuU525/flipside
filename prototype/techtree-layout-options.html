@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>科技树布局方案对比</title>
+<style>
+  body { background:#141a28; color:#dfe7f3; font-family:"Microsoft YaHei",sans-serif; margin:0; padding:28px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  p.sub { color:#8fa0b8; font-size:13px; margin:0 0 24px; }
+  .row { display:inline-block; vertical-align:top; margin:0 14px 0 0; }
+  .label { font-size:14px; font-weight:700; margin-bottom:8px; }
+  .label small { color:#8fa0b8; font-weight:400; margin-left:6px; }
+  svg { display:block; border:1px solid #2a3446; background:#0e1420; }
+  .node rect { fill:#1b2942; stroke:#3d5a80; stroke-width:1.5; }
+  .node text { fill:#dfe7f3; font-size:13px; }
+  .node.root rect { fill:#243a5e; stroke:#ffc857; stroke-width:2; }
+  .node.root text { fill:#ffd166; font-weight:700; }
+  .link { stroke:#3a4a66; stroke-width:1.5; fill:none; }
+</style>
+</head>
+<body>
+  <h1>科技树布局 · 三方案对比</h1>
+  <p class="sub">同一批 20 个真实节点（根 + 三大分支），三种布局算法。深色方块=节点，金色框=根节点。</p>
+
+  <div class="row"><div class="label">方案 1 · 横向分层（tidy tree）<small>根在最左，深度做 X 轴，分支自然上下分组，连线水平向右</small></div><div id="s1"></div></div>
+  <div class="row"><div class="label">方案 2 · 自上而下（家谱式）<small>根在顶部居中，深度做 Y 轴，向下分层展开</small></div><div id="s2"></div></div>
+  <div class="row"><div class="label">方案 3 · 优化放射状（扇区按叶子数加权）<small>根居中，各分支按「子树叶子数」分配扇区宽度，避免挤成一团</small></div><div id="s3"></div></div>
+
+<script>
+const nodes = [
+  {id:'root', name:'解锁科技树', parent:null},
+  {id:'branchBottle', name:'瓶子分支', parent:'root'},
+  {id:'branchLuck', name:'成功率分支', parent:'root'},
+  {id:'branchHand', name:'手分支', parent:'root'},
+  {id:'expand', name:'玻璃瓶', parent:'branchBottle'},
+  {id:'special', name:'黄金瓶', parent:'branchBottle'},
+  {id:'expandCap', name:'扩容工程', parent:'branchBottle'},
+  {id:'cdGlass', name:'玻璃冷却', parent:'expand'},
+  {id:'cdGold', name:'黄金冷却', parent:'special'},
+  {id:'jadeCraft', name:'翡翠瓶', parent:'special'},
+  {id:'cdJade', name:'翡翠冷却', parent:'jadeCraft'},
+  {id:'stability', name:'稳定科技', parent:'branchLuck'},
+  {id:'balance', name:'平衡科技', parent:'stability'},
+  {id:'godhand', name:'神之一手', parent:'balance'},
+  {id:'streak', name:'连击科技', parent:'balance'},
+  {id:'streakReward', name:'连击奖励', parent:'streak'},
+  {id:'streakWindow', name:'连击存在时间', parent:'streak'},
+  {id:'unlockHand', name:'解锁手', parent:'branchHand'},
+  {id:'handFreq', name:'手频率', parent:'unlockHand'},
+  {id:'handLuck', name:'手几率', parent:'unlockHand'},
+];
+const byId = Object.fromEntries(nodes.map(n => [n.id, n]));
+const kids = {};
+nodes.forEach(n => { if (n.parent === null) return; const p = n.parent; (kids[p] = kids[p] || []).push(n.id); });
+// 深度
+const depth = {root:0};
+(function bfs(){
+  const q = ['root'];
+  while (q.length) {
+    const id = q.shift();
+    for (const c of (kids[id]||[])) { depth[c] = depth[id]+1; q.push(c); }
+  }
+})();
+// 叶子 in-order(按节点数组顺序 = 分支顺序)
+const leaves = nodes.filter(n => !(kids[n.id] && kids[n.id].length) && n.id !== 'root').map(n => n.id);
+
+function render(el, posFn, W, H) {
+  const pos = posFn();
+  let links = '';
+  let nodeEls = '';
+  for (const n of nodes) {
+    const p = n.parent || 'root';
+    const a = pos[p], b = pos[n.id];
+    if (a && b) links += `<path class="link" d="M ${a.x} ${a.y} L ${b.x} ${b.y}"/>`;
+  }
+  for (const n of nodes) {
+    const p = pos[n.id];
+    const w = n.id === 'root' ? 120 : 112, h = 34;
+    const cls = n.id === 'root' ? 'root' : '';
+    nodeEls += `<g class="node ${cls}" transform="translate(${p.x - w/2} ${p.y - h/2})">
+      <rect width="${w}" height="${h}" rx="5"/>
+      <text x="${w/2}" y="${h/2 + 5}" text-anchor="middle">${n.name}</text>
+    </g>`;
+  }
+  // viewBox 保持 W×H, 实际渲染缩到 340 宽(横向三列并排)
+  el.innerHTML = `<svg width="340" height="${Math.round(340 * H / W)}" viewBox="0 0 ${W} ${H}">${links}${nodeEls}</svg>`;
+}
+
+// ---- 方案1: 横向分层 tidy tree ----
+function layout1() {
+  const W = 1080, H = 640;
+  const dx = 160, rowH = 58;
+  const pos = {};
+  // y: 叶子按顺序分槽位
+  const leafY = {};
+  leaves.forEach((id, i) => { leafY[id] = 70 + i * rowH; });
+  // 内部节点 y = 子节点 y 均值(后序遍历)
+  function calcY(id) {
+    const cs = kids[id] || [];
+    if (!cs.length) { return leafY[id]; }
+    let s = 0; for (const c of cs) s += calcY(c);
+    return s / cs.length;
+  }
+  const yMap = {};
+  (function fill(id) {
+    const cs = kids[id] || [];
+    for (const c of cs) fill(c);
+    yMap[id] = cs.length ? calcY(id) : leafY[id];
+  })('root');
+  for (const n of nodes) {
+    pos[n.id] = { x: 70 + depth[n.id] * dx, y: yMap[n.id] };
+  }
+  return pos;
+}
+
+// ---- 方案2: 自上而下 tidy tree ----
+function layout2() {
+  const W = 1080, H = 640;
+  const dy = 105, colW = 120;
+  const pos = {};
+  const leafX = {};
+  leaves.forEach((id, i) => { leafX[id] = 80 + i * colW; });
+  function calcX(id) {
+    const cs = kids[id] || [];
+    if (!cs.length) return leafX[id];
+    let s = 0; for (const c of cs) s += calcX(c);
+    return s / cs.length;
+  }
+  const xMap = {};
+  (function fill(id) {
+    const cs = kids[id] || [];
+    for (const c of cs) fill(c);
+    xMap[id] = cs.length ? calcX(id) : leafX[id];
+  })('root');
+  for (const n of nodes) {
+    pos[n.id] = { x: xMap[n.id], y: 60 + depth[n.id] * dy };
+  }
+  return pos;
+}
+
+// ---- 方案3: 优化放射状(扇区按叶子数加权) ----
+function layout3() {
+  const W = 1080, H = 720;
+  const cx = W/2, cy = H/2, r0 = 105;
+  // 每个节点子树叶子数
+  function leafCount(id) {
+    const cs = kids[id] || [];
+    if (!cs.length) return 1;
+    let s = 0; for (const c of cs) s += leafCount(c);
+    return s;
+  }
+  const pos = {};
+  pos['root'] = { x: cx, y: cy };
+  // 根的子节点按叶子数分配扇区
+  const rootKids = kids['root'];
+  const total = rootKids.reduce((s, c) => s + leafCount(c), 0);
+  let a0 = -Math.PI/2;
+  function place(id, a0, a1, radius) {
+    const ang = (a0 + a1) / 2;
+    pos[id] = { x: cx + radius * Math.cos(ang), y: cy + radius * Math.sin(ang) };
+    const cs = kids[id] || [];
+    if (!cs.length) return;
+    let a = a0;
+    for (const c of cs) {
+      const w = leafCount(c) / leafCount(id);
+      place(c, a, a + w * (a1 - a0), radius + r0);
+      a += w * (a1 - a0);
+    }
+  }
+  for (const c of rootKids) {
+    const w = leafCount(c) / total;
+    place(c, a0, a0 + w * Math.PI * 2, r0);
+    a0 += w * Math.PI * 2;
+  }
+  return pos;
+}
+
+render(document.getElementById('s1'), layout1, 1080, 640);
+render(document.getElementById('s2'), layout2, 1080, 640);
+render(document.getElementById('s3'), layout3, 1080, 720);
+</script>
+</body>
+</html>

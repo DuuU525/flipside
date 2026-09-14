@@ -679,6 +679,7 @@
         b.flying = false;
         b.cooling = true;                     // 落地进入冷却(结冰), 冷却结束前不可再抛
         b.coolUntil = now + cooldownMs(b.type);
+        Sound.land(b.source === 'hand');      // 落地撞击(挂机衰减)
         settleResult(b);
         continue;
       }
@@ -701,6 +702,7 @@
       if (b.cooling && now >= b.coolUntil) {
         b.cooling = false;
         b.thawUntil = now + 350;               // 解冻绿光持续 350ms
+        Sound.thaw();                          // 解冻"叮"(配合绿光)
       }
     }
   }
@@ -1517,7 +1519,8 @@
     spawnHammerFx(p);                                 // 先锤子挥击
     spawnShards(b, p, 185);                           // 砸中瞬间(185ms)碎片爆
     addFloatText(p.x, p.y - 120, '敲碎 ' + bt.name + (refund > 0 ? ' +' + refund + ' 瓶盖' : ''), '#ff9f43');
-    Sound.smash();
+    Sound.swing();                                    // 挥击"呼"(下扫)
+    setTimeout(() => Sound.smash(), 185);             // 砸中瞬间敲击声(与碎片爆同步)
     updateHUD();
     renderPanel();
     saveState();
@@ -1907,6 +1910,7 @@
         scoreDisplay += amount;                    // 瓶盖到达 HUD, 显示值才增加
         updateHUD();
         pulseScore('gain');                        // 绿色脉冲(获得)
+        Sound.coinDing();                          // 瓶盖到达"叮"
         return;
       }
       requestAnimationFrame(step);

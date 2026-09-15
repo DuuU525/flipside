@@ -675,12 +675,14 @@
     checkAchievements();
     checkDaily();
     const p = project(b.wx, b.wy, 0);
+    // 瓶口位置(飘字/瓶盖动画统一起点): 正立瓶口朝上(脚点上方 2×半瓶高), 倒立瓶口朝下贴地(脚点)
+    const mouthY = b.state === 'upright' ? p.y - 2 * HALF_H * BOTTLE_SCALE : p.y;
     // 飘字: 仅手动抛瓶 + 命中(平躺 text 为空不飘); 挂机(手)完全不飘字, 避免刷屏淹没手动反馈
-    if (!isHand && text) addFloatText(p.x, p.y - 140, text, color, icon);
-    // 成功站立: 瓶盖飞向 HUD 瓶盖数字(替代原彩带), 到达后数字弹跳
-    if (gained > 0) flyCapsToHud(p.x, p.y, gained);
-    // 金色瞬间: 金色粒子爆 + 全屏闪光
-    if (b.golden) { spawnGoldenBurst(p); goldenFlashUntil = performance.now() + 350; }
+    if (!isHand && text) addFloatText(p.x, mouthY, text, color, icon);
+    // 成功站立: 瓶盖从瓶口飞向 HUD 瓶盖数字(替代原彩带), 到达后数字弹跳
+    if (gained > 0) flyCapsToHud(p.x, mouthY, gained);
+    // 金色瞬间: 金色粒子爆 + 全屏闪光(从瓶口爆出)
+    if (b.golden) { spawnGoldenBurst({ x: p.x, y: mouthY }); goldenFlashUntil = performance.now() + 350; }
   }
 
   // ============================ 残影(手动瓶高连击拖尾) ============================

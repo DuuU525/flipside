@@ -183,6 +183,7 @@
     let streakGetter = () => 0;   // 当前连击数(外部注入)
     let noiseBuf = null;
     let currentStepMs = CONFIG.musicStreak.baseStepMs;   // 当前实际节奏(平滑趋近目标)
+    let masterGain = null;        // 音乐总线(sidechain 闪避用)
 
     // 主旋律(C大调, 0=休止) —— 轻快段(低连击)
     const MELODY = [523.25, 0, 659.25, 0, 783.99, 0, 659.25, 0, 880, 0, 783.99, 0, 659.25, 0, 587.33, 0];
@@ -192,6 +193,16 @@
     const MELODY_INTENSE = [659.25, 783.99, 880, 783.99, 1046.5, 880, 783.99, 659.25, 880, 1046.5, 1318.51, 1046.5, 880, 783.99, 659.25, 587.33];
     // 激昂段低音更活跃(C3-E3-C3-G3-C3-E3-G2-C3)
     const BASS_INTENSE   = [130.81, 0, 164.81, 0, 130.81, 0, 196.00, 0, 130.81, 0, 164.81, 0, 98.00, 0, 130.81, 0];
+
+    function getMaster() {
+      const c = Sound.getCtx(); if (!c) return null;
+      if (!masterGain) {
+        masterGain = c.createGain();
+        masterGain.connect(c.destination);
+        masterGain.gain.value = 1;
+      }
+      return masterGain;
+    }
 
     function note(freq, dur, type, vol, when) {
       if (!enabled || volume <= 0 || !freq) return;
@@ -204,12 +215,54 @@
       g.gain.setValueAtTime(0.0001, t);
       g.gain.exponentialRampToValueAtTime(v, t + 0.02);
       g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      o.connect(g); g.connect(c.destination);
+      o.connect(g);
+      g.connect(getMaster() || c.destination);
       o.start(t); o.stop(t + dur + 0.05);
     }
 
-    // hi-hat(高通噪声短促打击)
-    function hat(t) {
+    // 底鼓(kick): 低频 sine 快速下滑 150→50Hz, 强拍"咚"
+    function kick(t) {
+      if (!enabled || volume <= 0) return;
+      const c = Sound.getCtx(); if (!c) return;
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(150, t);
+      o.frequency.exponentialRampToValueAtTime(50, t + 0.12);
+      const v = Math.max(0.0001, 0.20 * volume);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(v, t + 0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+      o.connect(g);
+      g.connect(getMaster() || c.destination);
+      o.start(t); o.stop(t + 0.2);
+    }
+
+    // 军鼓(snare): 带通噪声短促"啪", 反拍
+    function snare(t) {
+      if (!enabled || volume <= 0) return;
+      const c = Sound.getCtx(); if (!c) return;
+      if (!noiseBuf) {
+        noiseBuf = c.createBuffer(1, Math.floor(c.sampleRate * 0.1), c.sampleRate);
+        const d = noiseBuf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      }
+      const src = c.createBufferSource(); src.buffer = noiseBuf;
+      const f = c.createBiquadFilter();
+      f.type = 'bandpass';
+      f.Q.value = 0.7;
+      f.frequency.setValueAtTime(1800, t);
+      const g = c.createGain();
+      const v = Math.max(0.0001, 0.13 * volume);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(v, t + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+      src.connect(f); f.connect(g);
+      g.connect(getMaster() || c.destination);
+      src.start(t); src.stop(t + 0.15);
+    }
+
+    // hi-hat(高通噪声短促打击), vol 可选音量
+    function hat(t, vol) {
       if (!enabled || volume <= 0) return;
       const c = Sound.getCtx(); if (!c) return;
       if (!noiseBuf) {
@@ -224,9 +277,10 @@
       f.frequency.setValueAtTime(7000, t);
       const g = c.createGain();
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(Math.max(0.0001, 0.05 * volume), t + 0.004);
+      g.gain.exponentialRampToValueAtTime(Math.max(0.0001, (vol || 0.05) * volume), t + 0.004);
       g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
-      src.connect(f); f.connect(g); g.connect(c.destination);
+      src.connect(f); f.connect(g);
+      g.connect(getMaster() || c.destination);
       src.start(t); src.stop(t + 0.06);
     }
 
@@ -243,7 +297,11 @@
         if (s >= CONFIG.musicStreak.harmonyAt) note(mel * 1.5, 0.20, 'triangle', 0.06, t);  // 五度和声
       }
       if (bass && s >= CONFIG.musicStreak.bassAt) note(bass, 0.36, 'sine', 0.09, t);
-      if (s >= CONFIG.musicStreak.hatAt) hat(t);      // 打击乐
+      // 打击乐律动骨架: 底鼓(强拍, 始终有) + 军鼓(反拍, 连击达标) + hi-hat(基础每2步→达标每步)
+      if (step % CONFIG.musicStreak.kickEvery === 0) kick(t);
+      if (s >= CONFIG.musicStreak.snareAt && step % 4 === 2) snare(t);
+      const hatEvery = s >= CONFIG.musicStreak.hatDenseAt ? 1 : 2;
+      if (step % hatEvery === 0) hat(t, s >= CONFIG.musicStreak.hatDenseAt ? 0.06 : 0.05);
       step++;
       // 节奏随连击加速: 每连击缩短 stepPerStreak 毫秒, 下限 minStepMs; 平滑趋近避免突变
       const target = Math.max(CONFIG.musicStreak.minStepMs, CONFIG.musicStreak.baseStepMs - s * CONFIG.musicStreak.stepPerStreak);
@@ -266,8 +324,18 @@
       if (timer) { clearTimeout(timer); timer = null; }
     }
 
+    // sidechain 闪避: 命中音效响起时音乐短暂降音量(泵吸感), 让音效穿透音乐, 强化"爽感"
+    function duck(ms) {
+      const mg = getMaster(); if (!mg) return;
+      const t = mg.context.currentTime;
+      mg.gain.cancelScheduledValues(t);
+      mg.gain.setValueAtTime(mg.gain.value, t);            // 从当前值续接(可能已在半路)
+      mg.gain.linearRampToValueAtTime(0.55, t + 0.012);
+      mg.gain.linearRampToValueAtTime(1, t + 0.012 + (ms || 90) / 1000);
+    }
+
     return {
-      start, stop,
+      start, stop, duck,
       setVolume(v)  { volume = Math.max(0, Math.min(1, v)); onVolumeChange(); },
       setEnabled(b) { enabled = !!b; if (!enabled) stop(); onVolumeChange(); },
       isEnabled()   { return enabled; },

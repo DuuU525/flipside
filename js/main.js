@@ -628,6 +628,7 @@
       text = '+' + gained + ' 瓶盖' + typeLabel;
       color = special ? typeColor : '#52e07c';
       Sound.success(streak, isHand);   // 连击音高分层 + 挂机衰减
+      if (!isHand) Music.duck(80);     // 手动命中音乐闪避(泵吸感)
     } else if (b.state === 'inverted') {
       if (!isHand) { streak += 1; streakExpireAt = performance.now() + streakWindowMs(); if (streak >= 2) triggerCombo(streak); }  // 挂机不累计连击
       const streakTerm = isHand ? 0 : (streak - 1) * bonus;  // 挂机不吃连击, 连击项恒为0
@@ -639,6 +640,7 @@
       text = '+' + gained + ' 瓶盖 瓶口站立!' + typeLabel;
       color = special ? typeColor : '#ffc857';
       Sound.bonus(streak, isHand);   // 倒立专属高光 + 连击分层 + 挂机衰减
+      if (!isHand) Music.duck(110);  // 倒立命中音乐闪避更强(核心奖励)
     } else {
       if (!isHand) breakStreak();                           // 挂机平躺不影响连击
       text = '平躺' + (special ? ' (' + bt.name + ')' : '');

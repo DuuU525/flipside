@@ -306,6 +306,7 @@
       cooling: false,                           // 冷却中(抛后结冰, 期间不可再抛)
       coolUntil: 0,                             // 冷却结束时间戳(performance.now)
       thawUntil: 0,                             // 解冻绿光结束时间戳(冷却完毕瞬间闪绿光)
+      rejectUntil: 0,                           // 冷却中拒绝操作冰锥抖动结束时间戳(performance.now)
       claimed: false,                           // 已被占用(手拍击中 / 玩家蓄力中), 不可再被选为空闲
       fromWx: wx, fromWy: wy, toWx: wx, toWy: wy,
       startRot: 0, endRot: 0, spinDir: 1,
@@ -780,9 +781,9 @@
       return;
     }
     if (b && !b.flying && !charging) {
-      if (b.cooling) {                        // 冷却中: 不可蓄力, 提示等待
-        const pp = project(b.wx, b.wy, b.h);
-        addFloatText(pp.x, pp.y - 120, '冷却中…', '#8fd0ff');
+      if (b.cooling) {                        // 冷却中: 不可蓄力, 冰锥抖动 + 拒意音(去文字提示)
+        b.rejectUntil = performance.now() + 200;
+        Sound.reject();
         return;
       }
       charging = { bottle: b };
@@ -2297,13 +2298,19 @@
     if (k <= 0) return;
     const p = project(b.wx, b.wy, 0);          // 贴地脚点(瓶底)
     const s = BOTTLE_SCALE;
+    // 冰锥抖动: 冷却中拒绝操作时, 冰锥水平微震(随 rejectUntil 衰减)
+    let spikeDx = 0;
+    if (b.rejectUntil > now) {
+      const rt = (b.rejectUntil - now) / 200;
+      spikeDx = Math.sin(rt * Math.PI * 14) * rt * 4 * s;
+    }
     // 1) 冰封底座: 瓶底一圈锯齿冰锥, 从桌面冻住瓶底
     ctx.save();
     ctx.globalAlpha = 0.55 * k;
     ctx.fillStyle = '#bfe3ff';
     const spikes = 5;
     for (let i = 0; i < spikes; i++) {
-      const cx = p.x + (i - (spikes - 1) / 2) * 13 * s;
+      const cx = p.x + spikeDx + (i - (spikes - 1) / 2) * 13 * s;
       const h = (22 + 16 * k) * s * (1 - Math.abs(i - (spikes - 1) / 2) / (spikes / 2) * 0.5);
       ctx.beginPath();
       ctx.moveTo(cx - 6, p.y + 2);
@@ -2520,7 +2527,7 @@
 
   // ============================ 调试钩子 ============================
   window.__pbottle = {
-    bottles: () => bottles.map(b => ({ state: b.state, type: b.type, flying: b.flying, cooling: b.cooling, coolUntil: b.coolUntil, thawUntil: b.thawUntil, claimed: b.claimed, free: b.free, wx: +b.wx.toFixed(0), wy: +b.wy.toFixed(0), h: +b.h.toFixed(0), rot: +b.rot.toFixed(2), phi: +b.phi.toFixed(2), tumbleTurns: b.tumbleTurns, spinTurns: b.spinTurns, heat: b.heat, fxGhost: b.fxGhost, ghosts: ghosts.length })),
+    bottles: () => bottles.map(b => ({ state: b.state, type: b.type, flying: b.flying, cooling: b.cooling, coolUntil: b.coolUntil, thawUntil: b.thawUntil, rejectUntil: b.rejectUntil, claimed: b.claimed, free: b.free, wx: +b.wx.toFixed(0), wy: +b.wy.toFixed(0), h: +b.h.toFixed(0), rot: +b.rot.toFixed(2), phi: +b.phi.toFixed(2), tumbleTurns: b.tumbleTurns, spinTurns: b.spinTurns, heat: b.heat, fxGhost: b.fxGhost, ghosts: ghosts.length })),
     stats: () => ({ caps, streak, best, attempts, panelUnlocked, tech: { ...techLevels }, items: { ...itemsOwned }, lifetime: { ...stats }, achievements: { ...achievements }, milestones: MILESTONES.filter(m => milestoneUnlocked(m.id)).map(m => m.id), maxBottles: currentMaxBottles(), hammerMode, streakWindowMs: streakWindowMs(), streakExpireAt }),
     music: () => ({ enabled: Music.isEnabled(), volume: +Music.getVolume().toFixed(2), playing: Music.isPlaying(), tempoTargetMs: Math.max(CONFIG.musicStreak.minStepMs, CONFIG.musicStreak.baseStepMs - streak * CONFIG.musicStreak.stepPerStreak), tempoCurrentMs: +Music.getTempo().toFixed(1), layers: { bass: streak >= CONFIG.musicStreak.bassAt, harmony: streak >= CONFIG.musicStreak.harmonyAt, hat: streak >= CONFIG.musicStreak.hatAt } }),
     hands: () => hands.map(h => ({ state: h.state, acc: +h.acc.toFixed(0), target: h.target ? h.target.type : null })),

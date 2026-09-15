@@ -148,6 +148,7 @@
   let floatingTexts = [];
   const shards = [];         // 瓶子碎片粒子(敲碎动画)
   const hammerFx = [];       // 锤子敲击动画(落下→敲击→上弹)
+  let goldenFlashUntil = 0;  // 金色瞬间全屏闪光结束时间戳
   let techAnim = null;       // 科技树解锁/升级动画 { id, kind: 'unlock'|'upgrade' }
   let techAnimTimer = null;  // 科技树动画清除定时器
   let combo = { count: 0, t0: 0, active: false };  // 街霸式连击提示
@@ -158,7 +159,7 @@
   let panelUnlocked = false;
   let techLevels = {};               // id -> 等级(0=未解锁)
   let itemsOwned = {};               // id -> 已购买数量
-  let stats = { earned: 0, inverted: 0, specialHits: 0, maxStreak: 0 };  // 累计统计
+  let stats = { earned: 0, inverted: 0, specialHits: 0, maxStreak: 0, golden: 0, consecutiveLie: 0 };  // 累计统计
   let achievements = {};             // 已达成成就 id -> true
   let milestoneNotified = {};         // 已通知的里程碑 id -> true
   let daily = { date: '', ids: [], base: {}, claimed: {} };  // 每日目标状态
@@ -313,6 +314,7 @@
       heat: 0,                                 // 连击提亮档(0/1/2)
       fxGhost: 0,                              // 残影密度(0=无残影)
       ghostLast: 0,                            // 残影采样时间戳
+      golden: false,                           // 金色瞬间(稀有彩蛋, 奖励×10 + 金色视觉)
       targetAngle: 0,                          // 落地朝向(只随机一次, 避免落地瞬间重抽)
       t0: 0,
       resultState: 'lying',
@@ -413,6 +415,11 @@
     if (r < inv) return 'inverted';
     if (r < inv + up) return 'upright';
     return 'lying';
+  }
+
+  // 金色瞬间触发概率: 基础 + 连击加成, 封顶(彩蛋越连击越容易遇到, 但保持稀有)
+  function goldenChance() {
+    return Math.min(CONFIG.golden.maxChance, CONFIG.golden.baseChance + streak * CONFIG.golden.perStreak);
   }
 
   // ============================ 朝向角度语义 ============================
@@ -575,10 +582,11 @@
   }
 
   // ============================ 抛瓶逻辑 ============================
-  function throwBottle(b, forcedState, source) {
+  function throwBottle(b, forcedState, source, golden) {
     if (b.flying || !started) return;
     b.flying = true;
     b.source = source || 'manual';                          // 抛瓶来源: manual 手动 / hand 挂机
+    b.golden = !!golden;                                    // 金色瞬间(稀有彩蛋)
     b.fromWx = b.wx; b.fromWy = b.wy;
     const spot = randomLandingSpot();
     b.toWx = spot.wx; b.toWy = spot.wy;
@@ -629,20 +637,31 @@
       color = special ? typeColor : '#52e07c';
       Sound.success(streak, isHand);   // 连击音高分层 + 挂机衰减
       if (!isHand) Music.duck(80);     // 手动命中音乐闪避(泵吸感)
+      if (!isHand) stats.consecutiveLie = 0;   // 命中重置连续平躺计数
     } else if (b.state === 'inverted') {
       if (!isHand) { streak += 1; streakExpireAt = performance.now() + streakWindowMs(); if (streak >= 2) triggerCombo(streak); }  // 挂机不累计连击
       const streakTerm = isHand ? 0 : (streak - 1) * bonus;  // 挂机不吃连击, 连击项恒为0
       gained = Math.round((CONFIG.scoreMouth + streakTerm) * baseMult * achMult * goldMult * sourceMult);
+      if (b.golden) {                                       // 金色瞬间: 奖励×10 + 专属视觉/音效
+        gained = Math.round(gained * CONFIG.golden.mult);
+        stats.golden++;
+        text = '金色瞬间！+' + gained + ' 瓶盖' + typeLabel;
+        color = '#ffd166';
+      } else {
+        text = '+' + gained + ' 瓶盖 瓶口站立!' + typeLabel;
+        color = special ? typeColor : '#ffc857';
+      }
       caps += gained;
       stats.earned += gained;
       stats.inverted++;
       if (special) stats.specialHits++;
-      text = '+' + gained + ' 瓶盖 瓶口站立!' + typeLabel;
-      color = special ? typeColor : '#ffc857';
-      Sound.bonus(streak, isHand);   // 倒立专属高光 + 连击分层 + 挂机衰减
-      if (!isHand) Music.duck(110);  // 倒立命中音乐闪避更强(核心奖励)
+      if (!isHand) stats.consecutiveLie = 0;               // 命中重置连续平躺计数
+      if (b.golden) Sound.golden();                        // 金色专属高光
+      else Sound.bonus(streak, isHand);                    // 倒立专属高光 + 连击分层 + 挂机衰减
+      if (!isHand) Music.duck(b.golden ? 150 : 110);       // 金色瞬间音乐闪避最强
     } else {
       if (!isHand) breakStreak();                           // 挂机平躺不影响连击
+      if (!isHand) stats.consecutiveLie++;                  // 手动连续平躺计数(隐藏成就)
       text = '平躺' + (special ? ' (' + bt.name + ')' : '');
       color = '#8fa0b8';
       Sound.fail(isHand);   // 平躺负反馈, 挂机衰减
@@ -658,6 +677,8 @@
     addFloatText(p.x, p.y - 140, text, color, isHand ? 'robot' : null);
     // 成功站立: 瓶盖飞向 HUD 瓶盖数字(替代原彩带), 到达后数字弹跳
     if (gained > 0) flyCapsToHud(p.x, p.y, gained);
+    // 金色瞬间: 金色粒子爆 + 全屏闪光
+    if (b.golden) { spawnGoldenBurst(p); goldenFlashUntil = performance.now() + 350; }
   }
 
   // ============================ 残影(手动瓶高连击拖尾) ============================
@@ -665,7 +686,7 @@
   const ghosts = [];   // { wx, wy, h, rot, phi, type, born }
   function pushGhost(b) {
     if (ghosts.length >= CONFIG.streakFx.ghostMax) ghosts.shift();
-    ghosts.push({ wx: b.wx, wy: b.wy, h: b.h, rot: b.rot, phi: b.phi, type: b.type, born: performance.now() });
+    ghosts.push({ wx: b.wx, wy: b.wy, h: b.h, rot: b.rot, phi: b.phi, type: b.type, golden: b.golden, born: performance.now() });
   }
 
   // ============================ 动画更新 ============================
@@ -690,9 +711,9 @@
       b.h = CONFIG.peakH * Math.sin(Math.PI * t);            // 抛物线高度
       b.rot = b.startRot + (b.endRot - b.startRot) * easeOutCubic(t);
       b.phi = b.tumbleTurns * Math.PI * 2 * easeOutCubic(t); // 空翻(整数圈, 落地回正)
-      // 残影采样(仅手动瓶高连击): 残影密度越高采样间隔越短
-      if (b.fxGhost > 0) {
-        const interval = Math.max(25, 200 / b.fxGhost);
+      // 残影采样(仅手动瓶高连击; 金色瞬间瓶始终采样金色拖尾)
+      if (b.fxGhost > 0 || b.golden) {
+        const interval = b.golden ? 30 : Math.max(25, 200 / b.fxGhost);
         if (now - b.ghostLast >= interval) { b.ghostLast = now; pushGhost(b); }
       }
     }
@@ -777,7 +798,9 @@
     if (b && !b.flying) {
       let state = stateFromPointer(chargePointer(chargePhase));
       if (state === 'lying') state = rollLyingSave();   // 平躺兜底: 小概率翻正(概率随成功率科技)
-      throwBottle(b, state, 'manual');
+      const golden = Math.random() < goldenChance();     // 金色瞬间: 小概率触发(随连击提升)
+      if (golden) state = 'inverted';                    // 触发即强制倒立
+      throwBottle(b, state, 'manual', golden);
     }
   }
   window.addEventListener('pointerup', releaseCharge);
@@ -810,7 +833,7 @@
     panelUnlocked = false;
     techLevels = {};
     itemsOwned = {};
-    stats = { earned: 0, inverted: 0, specialHits: 0, maxStreak: 0 };
+    stats = { earned: 0, inverted: 0, specialHits: 0, maxStreak: 0, golden: 0, consecutiveLie: 0 };
     achievements = {};
     milestoneNotified = {};
     floatingTexts = [];
@@ -1173,6 +1196,8 @@
       case 'bottleCount':  return bottles.length;
       case 'specialCount': return owned('specialBottle');
       case 'jadeCount':    return owned('jadeBottle');
+      case 'golden':       return stats.golden;
+      case 'consecutiveLie': return stats.consecutiveLie;
       default:             return 0;
     }
   }
@@ -1223,7 +1248,7 @@
           if (caps > best) best = caps;
           rewarded = true;
         }
-        notifyAchievement(a);
+        notifyAchievement(a, a.hidden ? { title: '隐藏成就达成！' } : {});
         Sound.achievement();
         saveState();
       }
@@ -1354,6 +1379,8 @@
     ).join('') + '</div>';
     const milestonesHtml = renderMilestones();
     const cardsHtml = ACHIEVEMENTS.map(a => {
+      // 隐藏成就: 未达成前不在列表显示(达成才揭晓)
+      if (a.hidden && !achievements[a.id]) return '';
       const got = !!achievements[a.id];
       const val = achievementValue(a.type);
       const target = achievementTarget(a);
@@ -1363,16 +1390,18 @@
         ? '<span class="tag tag-done">已达成</span>'
         : `<div class="ach-progress"><div class="ach-progress-bar" style="width:${(pct * 100).toFixed(0)}%"></div><span class="ach-progress-text">${val}/${target}</span></div>`;
       const rewardTag = a.reward ? `<span class="ach-reward${got ? ' claimed' : ''}">+${a.reward} 瓶盖</span>` : '';
+      const hiddenTag = a.hidden ? '<span class="ach-hidden-tag">隐藏</span>' : '';
       return `<div class="ach-card${got ? ' got' : ''}">
         <div class="ach-icon">${pixelSvg(a.icon, 26)}</div>
         <div class="ach-body">
-          <div class="ach-name">${a.name}${rewardTag}</div>
+          <div class="ach-name">${a.name}${rewardTag}${hiddenTag}</div>
           <div class="ach-desc">${desc}</div>
           ${progress}
         </div>
       </div>`;
     }).join('');
-    tabAchievements.innerHTML = `<div class="ach-header">成就 <span class="count">${doneCount}/${ACHIEVEMENTS.length}</span><span class="ach-bonus-hint">全局收益 +${Math.round(doneCount * CONFIG.achievementRewardPerAch * 100)}%</span></div>` + statsHtml + renderDaily() + milestonesHtml + cardsHtml;
+    const visibleTotal = ACHIEVEMENTS.filter(a => !a.hidden || achievements[a.id]).length;
+    tabAchievements.innerHTML = `<div class="ach-header">成就 <span class="count">${doneCount}/${visibleTotal}</span><span class="ach-bonus-hint">全局收益 +${Math.round(doneCount * CONFIG.achievementRewardPerAch * 100)}%</span></div>` + statsHtml + renderDaily() + milestonesHtml + cardsHtml;
   }
 
   function renderPanel() {
@@ -1828,6 +1857,24 @@
   function spawnHammerFx(p) {
     hammerFx.push({ x: p.x, y: p.y, t0: performance.now() });
   }
+  // 金色瞬间粒子爆: 金色系彩带四散(数量更多、寿命更长、向上喷得更猛), 复用 shards 更新/绘制
+  function spawnGoldenBurst(p) {
+    const colors = ['#ffd166', '#ffc857', '#ffe08a', '#fff3c4', '#ffb703', '#fffbe6'];
+    for (let i = 0; i < 46; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const spd = 2 + Math.random() * 5;
+      shards.push({
+        x: p.x, y: p.y,
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd - 2.8,
+        size: 3 + Math.random() * 4,
+        color: colors[(Math.random() * colors.length) | 0],
+        rot: Math.random() * Math.PI,
+        vr: (Math.random() - 0.5) * 0.4,
+        age: 0, life: 700 + Math.random() * 500,
+      });
+    }
+  }
   function updateShards(dt) {
     for (let i = shards.length - 1; i >= 0; i--) {
       const s = shards[i];
@@ -2058,7 +2105,7 @@
       ctx.rotate(g.rot);
       ctx.globalAlpha = (1 - age) * CONFIG.streakFx.ghostAlpha;
       ctx.scale(1, scaleY);
-      drawBottleFront(ctx, g.type, false, 0);
+      drawBottleFront(ctx, g.type, false, 0, g.golden);
       ctx.restore();
     }
     ctx.globalAlpha = 1;
@@ -2067,12 +2114,13 @@
   // 正视图瓶子(瓶口朝上, -y 方向), 始终以正面朝向镜头绘制
   // type: 瓶子类型(玻璃/黄金/翡翠), 颜色与光晕查 BOTTLE_TYPES; heat: 连击提亮档(0/1/2)
   // frozen: 冻结灰白去饱和(冷却中的瓶子失去本色, 与正常瓶区分)
-  function drawBottleFront(ctx, type, highlight, heat) {
+  function drawBottleFront(ctx, type, highlight, heat, golden) {
     const bw = BOTTOM_W, tw = TOP_W, hh = HALF_H;
     const bt = BOTTLE_TYPES[type] || BOTTLE_TYPES.glass;
     // 连击提亮: heat 1=黄光晕, 2=红橙光晕(高连击瓶子更亮更暖)
     let stroke = bt.stroke, glow = bt.shadow, blur = bt.blur, offsetY = 4;
-    if (heat === 1) { stroke = 'rgba(255,214,130,0.95)'; glow = 'rgba(255,200,87,0.5)'; blur = 18; offsetY = 0; }
+    if (golden) { stroke = '#ffd166'; glow = 'rgba(255,209,102,0.85)'; blur = 26; offsetY = 0; }
+    else if (heat === 1) { stroke = 'rgba(255,214,130,0.95)'; glow = 'rgba(255,200,87,0.5)'; blur = 18; offsetY = 0; }
     else if (heat === 2) { stroke = 'rgba(255,150,90,1)'; glow = 'rgba(255,120,80,0.6)'; blur = 22; offsetY = 0; }
     ctx.shadowColor = glow;
     ctx.shadowBlur = blur;
@@ -2129,7 +2177,7 @@
     ctx.rotate(b.rot);
     ctx.globalAlpha = alpha;
     ctx.scale(1, scaleY);
-    drawBottleFront(ctx, b.type, highlight, heat);
+    drawBottleFront(ctx, b.type, highlight, heat, b.golden);
     // 瓶盖: 非冷却期(可操作)瓶子盖上盖子, 按类型配色; 飞行中/冷却中不画
     if (!b.cooling && !b.flying) {
       const CAP_COLORS = {
@@ -2267,6 +2315,15 @@
     drawStreakTimer();
     if (hammerMode) drawHammerHint();
     if (CONFIG.debug) drawDebug();
+    // 金色瞬间全屏闪光(淡出)
+    if (goldenFlashUntil > 0) {
+      const k = (goldenFlashUntil - performance.now()) / 350;
+      if (k <= 0) { goldenFlashUntil = 0; }
+      else {
+        ui.fillStyle = 'rgba(255,209,102,' + (0.32 * k).toFixed(3) + ')';
+        ui.fillRect(0, 0, CONFIG.worldW, CONFIG.worldH);
+      }
+    }
   }
 
   // 敲碎模式顶部提示

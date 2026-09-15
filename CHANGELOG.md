@@ -40,13 +40,25 @@
 - **sidechain 闪避**：手动命中（直立/倒立）瞬间音乐短暂降音量（泵吸感），让命中音效穿透音乐；
   倒立命中闪避更强（110ms）。挂机命中不触发闪避，保持音乐平稳。
 
+### 新增（惊喜玩法：金色瞬间彩蛋 + 隐藏成就）
+
+- **金色瞬间**：手动抛瓶小概率触发（基础 0.4%，随连击递增，封顶 2%），触发即强制倒立，
+  奖励 ×10，瓶子飞行带金色拖尾、落地金色彩带爆 + 全屏金色闪光，专属高光音效（上行滑音 + 六音琶音）。
+  只对手动抛瓶生效，挂机不触发，保持"手动是主角"的惊喜感。
+- **隐藏成就**：新增 3 个隐藏成就（未达成不在成就列表显示，达成才揭晓并弹「隐藏成就达成！」）——
+  「天降横财」（金色瞬间 ×1）、「金色眷顾」（金色瞬间 ×10）、「躺平大师」（连续平躺 5 次）。
+  隐藏成就达成后计入成就总数（推进里程碑与全局收益）。
+
 ### 技术
 
 - `js/audio.js` 重构 `tone()` 支持 attack/decay 包络，新增 `toneChord()` 泛音叠加、
   `throttled()` 节流表、`noiseBurst()` 噪声打击（带通/低通滤波）；`success`/`bonus`/`fail`/`flip`
-  增加 `streak`/`isHand` 参数，新增 `land`/`coinDing`/`thaw`/`swing` 音效。
+  增加 `streak`/`isHand` 参数，新增 `land`/`coinDing`/`thaw`/`swing`/`golden` 音效。
 - `js/main.js` 接入 8 处触发点：抛瓶/直立/倒立/平躺传 `streak`+`isHand`；落地撞击、
   瓶盖到达、冷却解冻、锤子挥击（swing + 延迟 smash）各 1 处。
+- 金色瞬间：`js/data.js` 加 `CONFIG.golden`（概率/倍率）、`ACHIEVEMENTS` 加 3 个 `hidden` 成就；
+  `js/main.js` 加 `goldenChance()`/`spawnGoldenBurst()`/`goldenFlashUntil`，瓶子模型加 `golden` 字段，
+  成就渲染隐藏过滤（`visibleTotal`）+「隐藏」标签；`stats` 加 `golden`/`consecutiveLie`（存档兼容，旧档自动补 0）。
 
 ---
 

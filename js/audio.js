@@ -130,6 +130,14 @@
         tone(base * 2, 0.20, 'sine', vol * 0.4, 0.24);         // 高八度延音尾
       },
 
+      // 金色瞬间(稀有彩蛋): 比 bonus 更强的闪亮高光(更快滑音 + 更长琶音 + 更高延音)
+      golden() {
+        if (!throttled('golden', 60)) return;
+        tone(659, 0.12, 'triangle', 0.18, 0, 1318);            // 快速上行滑音(更亮更急)
+        [659, 784, 988, 1319, 1568, 2093].forEach((f, i) => tone(f, 0.18, 'sine', 0.15, i * 0.055));
+        tone(2093, 0.30, 'sine', 0.10, 0.33);                  // 高八度延音尾
+      },
+
       // 平躺(失败): 负反馈, 挂机衰减
       fail(isHand) {
         if (!throttled('fail', 45)) return;

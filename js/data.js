@@ -112,6 +112,14 @@
       handAlpha: 0.45,    // 飞行中挂机瓶降权透明度(主次分明)
     },
 
+    // 金色瞬间(稀有彩蛋): 手动抛瓶小概率触发, 强制倒立 + 奖励×10 + 金色视觉/音效
+    golden: {
+      baseChance: 0.004,   // 基础触发概率 0.4%(约每 250 次一次)
+      perStreak: 0.0008,   // 每 1 连击 +0.08%
+      maxChance: 0.02,     // 触发概率上限 2%(连击 20 时封顶)
+      mult: 10,            // 奖励倍率
+    },
+
     soundVolume: 0.7,        // 默认音效音量(0~1)
     musicVolume: 0.5,        // 默认音乐音量(0~1)
 
@@ -227,6 +235,10 @@
     { id: 'bottle8',     name: '瓶满为患',   desc: '桌面放满瓶子',         icon: 'bottle', type: 'bottleCount',  target: 8,     reward: 80 },
     { id: 'special3',    name: '收藏家',     desc: '拥有 3 个黄金瓶',   icon: 'star', type: 'specialCount', target: 3,     reward: 100 },
     { id: 'jade3',       name: '翡翠收藏家', desc: '拥有 3 个翡翠瓶',     icon: 'bottleJade', type: 'jadeCount',    target: 3,     reward: 150 },
+    // 隐藏成就(不在列表显示, 达成才揭晓): 金色瞬间彩蛋 + 幽默向
+    { id: 'golden1',     name: '天降横财',   desc: '触发 1 次金色瞬间', icon: 'sparkle', type: 'golden',         target: 1,   reward: 50,  hidden: true },
+    { id: 'golden10',    name: '金色眷顾',   desc: '触发 10 次金色瞬间', icon: 'crown', type: 'golden',         target: 10,  reward: 500, hidden: true },
+    { id: 'lie5',        name: '躺平大师',   desc: '连续平躺 5 次',     icon: 'star', type: 'consecutiveLie', target: 5,   reward: 30,  hidden: true },
   ];
 
   // 成就里程碑(专属奖励): 达成对应成就数自动解锁, 即时生效

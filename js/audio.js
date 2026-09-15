@@ -184,10 +184,14 @@
     let noiseBuf = null;
     let currentStepMs = CONFIG.musicStreak.baseStepMs;   // 当前实际节奏(平滑趋近目标)
 
-    // 主旋律(C大调, 0=休止)
+    // 主旋律(C大调, 0=休止) —— 轻快段(低连击)
     const MELODY = [523.25, 0, 659.25, 0, 783.99, 0, 659.25, 0, 880, 0, 783.99, 0, 659.25, 0, 587.33, 0];
     // 低音(C3/A2/F2/G2)
     const BASS   = [130.81, 0, 0, 0, 110.00, 0, 0, 0, 87.31, 0, 0, 0, 98.00, 0, 0, 0];
+    // 激昂段(高连击): 音域更高、旋律更密集(几乎每步有音), 上行推进 C5-E5-G5-A5-C6-E6
+    const MELODY_INTENSE = [659.25, 783.99, 880, 783.99, 1046.5, 880, 783.99, 659.25, 880, 1046.5, 1318.51, 1046.5, 880, 783.99, 659.25, 587.33];
+    // 激昂段低音更活跃(C3-E3-C3-G3-C3-E3-G2-C3)
+    const BASS_INTENSE   = [130.81, 0, 164.81, 0, 130.81, 0, 196.00, 0, 130.81, 0, 164.81, 0, 98.00, 0, 130.81, 0];
 
     function note(freq, dur, type, vol, when) {
       if (!enabled || volume <= 0 || !freq) return;
@@ -231,8 +235,9 @@
       const c = Sound.getCtx(); if (!c) return;
       const t = c.currentTime + 0.06;
       const s = streakGetter();                       // 当前连击
-      const mel = MELODY[step % MELODY.length];
-      const bass = BASS[step % BASS.length];
+      const intense = s >= CONFIG.musicStreak.intenseAt;   // 高连击切换激昂段
+      const mel = (intense ? MELODY_INTENSE : MELODY)[step % MELODY.length];
+      const bass = (intense ? BASS_INTENSE : BASS)[step % BASS.length];
       if (mel) {
         note(mel, 0.22, 'triangle', 0.11, t);
         if (s >= CONFIG.musicStreak.harmonyAt) note(mel * 1.5, 0.20, 'triangle', 0.06, t);  // 五度和声

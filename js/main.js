@@ -2237,8 +2237,8 @@
     ctx.globalAlpha = alpha;
     ctx.scale(1, scaleY);
     drawBottleFront(ctx, b.type, highlight, heat, b.golden);
-    // 瓶盖: 非冷却期(可操作)瓶子盖上盖子, 按类型配色; 飞行中/冷却中不画
-    if (!b.cooling && !b.flying) {
+    // 瓶盖: 非冷却期瓶子都盖盖子(可操作 + 飞行翻滚中都带着), 按类型配色; 冷却中(结冰)不画
+    if (!b.cooling) {
       const cc = CAP_COLORS[b.type] || CAP_COLORS.glass;
       const capHw = 9, capH = 7;                 // 盖子半宽/高(比瓶口 TOP_W=7 稍宽)
       ctx.save();

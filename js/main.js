@@ -615,15 +615,13 @@
   }
 
   function settleResult(b) {
-    let text, color;
+    let text = '', color = '#fff', icon = null;
     let gained = 0;                                       // 本次获得瓶盖数(用于飞向 HUD 动画)
     const bonus = effectiveStreakBonus();
     const bt = BOTTLE_TYPES[b.type] || BOTTLE_TYPES.glass;
     const special = b.type !== 'glass';
     const isHand = b.source === 'hand';                     // 挂机(手)抛瓶: 不吃连击, 收益打折
     const sourceMult = isHand ? CONFIG.handMult : CONFIG.manualMult;
-    const typeLabel = special ? ' ' + bt.name + '!' : '';
-    const typeColor = b.type === 'jade' ? '#6ee7a0' : (b.type === 'gold' ? '#ffd700' : null);
     const baseMult = special ? bt.mult + (milestoneUnlocked('ms_god') ? CONFIG.milestone.godSpecialBonus : 0) : 1;  // 瓶子类型倍率(瓶神附体可提升特殊瓶)
     const achMult = 1 + achievementCount() * CONFIG.achievementRewardPerAch;  // 成就全局收益加成
     const goldMult = milestoneUnlocked('ms_gold') ? 1 + CONFIG.milestone.goldCapsMult : 1;  // 黄金瓶盖
@@ -634,8 +632,9 @@
       caps += gained;
       stats.earned += gained;
       if (special) stats.specialHits++;
-      text = '+' + gained + ' 瓶盖' + typeLabel;
-      color = special ? typeColor : '#52e07c';
+      text = '+' + gained;                 // 纯数字飘字(去状态词)
+      color = '#52e07c';                   // 直立=绿
+      icon = null;                         // 直立无图标
       Sound.success(streak, isHand);   // 连击音高分层 + 挂机衰减
       if (!isHand) Music.duck(80);     // 手动命中音乐闪避(泵吸感)
       if (!isHand) stats.consecutiveLie = 0;   // 命中重置连续平躺计数
@@ -646,11 +645,13 @@
       if (b.golden) {                                       // 金色瞬间: 奖励×10 + 专属视觉/音效
         gained = Math.round(gained * CONFIG.golden.mult);
         stats.golden++;
-        text = '金色瞬间！+' + gained + ' 瓶盖' + typeLabel;
-        color = '#ffd166';
+        text = '+' + gained;               // 纯数字飘字
+        color = '#ffd166';                 // 金色瞬间=亮金
+        icon = 'sparkle';                  // 星形图标
       } else {
-        text = '+' + gained + ' 瓶盖 瓶口站立!' + typeLabel;
-        color = special ? typeColor : '#ffc857';
+        text = '+' + gained;               // 纯数字飘字
+        color = '#ffc857';                 // 倒立=金黄
+        icon = 'updown';                   // 上下箭头图标
       }
       caps += gained;
       stats.earned += gained;
@@ -663,8 +664,7 @@
     } else {
       if (!isHand) breakStreak();                           // 挂机平躺不影响连击
       if (!isHand) stats.consecutiveLie++;                  // 手动连续平躺计数(隐藏成就)
-      text = '平躺' + (special ? ' (' + bt.name + ')' : '');
-      color = '#8fa0b8';
+      text = '';                          // 平躺不飘任何字
       Sound.fail(isHand);   // 平躺负反馈, 挂机衰减
     }
     if (caps > best) { best = caps; }
@@ -675,7 +675,8 @@
     checkAchievements();
     checkDaily();
     const p = project(b.wx, b.wy, 0);
-    addFloatText(p.x, p.y - 140, text, color, isHand ? 'robot' : null);
+    // 飘字: 仅手动抛瓶 + 命中(平躺 text 为空不飘); 挂机(手)完全不飘字, 避免刷屏淹没手动反馈
+    if (!isHand && text) addFloatText(p.x, p.y - 140, text, color, icon);
     // 成功站立: 瓶盖飞向 HUD 瓶盖数字(替代原彩带), 到达后数字弹跳
     if (gained > 0) flyCapsToHud(p.x, p.y, gained);
     // 金色瞬间: 金色粒子爆 + 全屏闪光

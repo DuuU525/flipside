@@ -148,6 +148,7 @@
   let floatingTexts = [];
   const shards = [];         // 瓶子碎片粒子(敲碎动画)
   const hammerFx = [];       // 锤子敲击动画(落下→敲击→上弹)
+  const goldenFx = [];       // 金色瞬间特效(冲击波环 + 上升星光)
   let goldenFlashUntil = 0;  // 金色瞬间全屏闪光结束时间戳
   let techAnim = null;       // 科技树解锁/升级动画 { id, kind: 'unlock'|'upgrade' }
   let techAnimTimer = null;  // 科技树动画清除定时器
@@ -839,6 +840,7 @@
     floatingTexts = [];
     shards.length = 0;
     hammerFx.length = 0;
+    goldenFx.length = 0;
     techAnim = null;
     if (techAnimTimer) { clearTimeout(techAnimTimer); techAnimTimer = null; }
     combo = { count: 0, t0: 0, active: false };
@@ -1857,22 +1859,63 @@
   function spawnHammerFx(p) {
     hammerFx.push({ x: p.x, y: p.y, t0: performance.now() });
   }
-  // 金色瞬间粒子爆: 金色系彩带四散(数量更多、寿命更长、向上喷得更猛), 复用 shards 更新/绘制
+  // 金色瞬间特效: 冲击波环(主焦点, 干净利落的"音爆") + 上升星光(点缀, 梦幻收尾)
   function spawnGoldenBurst(p) {
-    const colors = ['#ffd166', '#ffc857', '#ffe08a', '#fff3c4', '#ffb703', '#fffbe6'];
-    for (let i = 0; i < 46; i++) {
-      const ang = Math.random() * Math.PI * 2;
-      const spd = 2 + Math.random() * 5;
-      shards.push({
-        x: p.x, y: p.y,
-        vx: Math.cos(ang) * spd,
-        vy: Math.sin(ang) * spd - 2.8,
-        size: 3 + Math.random() * 4,
-        color: colors[(Math.random() * colors.length) | 0],
-        rot: Math.random() * Math.PI,
-        vr: (Math.random() - 0.5) * 0.4,
-        age: 0, life: 700 + Math.random() * 500,
+    const now = performance.now();
+    // 冲击波环: 2 圈错峰扩散, 加速扩散(先慢后快更像冲击)
+    goldenFx.push({ type: 'ring', x: p.x, y: p.y, t0: now,          r1: 95, dur: 320, w: 6,   a: 0.9 });
+    goldenFx.push({ type: 'ring', x: p.x, y: p.y, t0: now + 60,     r1: 95, dur: 320, w: 3,   a: 0.6 });
+    // 上升星光: 7 粒金色星点从瓶口缓慢上飘 + 轻微左右摆动, 渐隐
+    for (let i = 0; i < 7; i++) {
+      goldenFx.push({
+        type: 'star',
+        x: p.x + (Math.random() * 2 - 1) * 30,
+        y: p.y,
+        vx: (Math.random() * 2 - 1) * 14,
+        vy: -(20 + Math.random() * 25),
+        t0: now + Math.random() * 120,
+        dur: 1000 + Math.random() * 400,
+        size: 3 + Math.random() * 3,
+        rot: Math.random() * Math.PI * 2,
       });
+    }
+  }
+  // 金色瞬间特效绘制(冲击波环 + 上升星光), 画在瓶子上方
+  function drawGoldenFx() {
+    if (goldenFx.length === 0) return;
+    const now = performance.now();
+    for (let i = goldenFx.length - 1; i >= 0; i--) {
+      const g = goldenFx[i];
+      const t = (now - g.t0) / g.dur;
+      if (t >= 1) { goldenFx.splice(i, 1); continue; }
+      if (g.type === 'ring') {
+        const k = t * t;                       // 加速扩散
+        const r = g.r1 * k;
+        const a = g.a * (1 - t);
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255,209,102,' + a.toFixed(3) + ')';
+        ctx.lineWidth = g.w;
+        ctx.shadowColor = 'rgba(255,209,102,' + (a * 0.8).toFixed(3) + ')';
+        ctx.shadowBlur = 12;
+        ctx.beginPath(); ctx.arc(g.x, g.y, r, 0, Math.PI * 2); ctx.stroke();
+        ctx.restore();
+      } else {                                 // star: 上飘 + 左右摆动
+        const x = g.x + g.vx * t + Math.sin(t * 6) * 3;
+        const y = g.y + g.vy * (t * g.dur / 1000);
+        const a = 1 - t;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(g.rot + t * 3);
+        ctx.fillStyle = 'rgba(255,224,138,' + a.toFixed(3) + ')';
+        ctx.shadowColor = 'rgba(255,209,102,' + (a * 0.8).toFixed(3) + ')';
+        ctx.shadowBlur = 8;
+        const s = g.size;
+        ctx.beginPath();
+        ctx.moveTo(0, -s); ctx.lineTo(s * 0.3, -s * 0.3); ctx.lineTo(s, 0); ctx.lineTo(s * 0.3, s * 0.3);
+        ctx.lineTo(0, s); ctx.lineTo(-s * 0.3, s * 0.3); ctx.lineTo(-s, 0); ctx.lineTo(-s * 0.3, -s * 0.3);
+        ctx.closePath(); ctx.fill();
+        ctx.restore();
+      }
     }
   }
   function updateShards(dt) {
@@ -2301,6 +2344,7 @@
     for (const h of hands) drawHand(h);
     drawShards();                     // 瓶子碎裂碎片
     drawHammerFx();                   // 锤子落下敲击
+    drawGoldenFx();                   // 金色瞬间特效(冲击波环 + 上升星光)
     if (charging) drawChargeBar();
 
     // 2) 最近邻放大到显示画布(产生像素颗粒)

@@ -680,7 +680,7 @@
     // 飘字: 仅手动抛瓶 + 命中(平躺 text 为空不飘); 挂机(手)完全不飘字, 避免刷屏淹没手动反馈
     if (!isHand && text) addFloatText(p.x, mouthY, text, color, icon);
     // 成功站立: 瓶盖从瓶口飞向 HUD 瓶盖数字(替代原彩带), 到达后数字弹跳
-    if (gained > 0) flyCapsToHud(p.x, mouthY, gained);
+    if (gained > 0) flyCapsToHud(p.x, mouthY, gained, b.type);
     // 金色瞬间: 金色粒子爆 + 全屏闪光(从瓶口爆出)
     if (b.golden) { spawnGoldenBurst({ x: p.x, y: mouthY }); goldenFlashUntil = performance.now() + 350; }
   }
@@ -1977,8 +1977,9 @@
   }
 
   // ============================ 瓶盖飞向 HUD + 数字弹跳 ============================
-  // 成功获得瓶盖时, 从瓶子位置飞出一个瓶盖到 HUD「瓶盖」数字处, 到达后数字弹跳
-  function flyCapsToHud(cx, cy, amount) {
+  // 成功获得瓶盖时, 从瓶子瓶口飞出一个瓶盖到 HUD「瓶盖」数字处, 到达后数字弹跳
+  // 飞行瓶盖用类型配色(与瓶子上盖子一致): 玻璃蓝/黄金/翡翠绿
+  function flyCapsToHud(cx, cy, amount, type) {
     const cr = canvas.getBoundingClientRect();
     const sr = elScore.getBoundingClientRect();
     if (!cr.width || !sr.width) return;
@@ -1988,7 +1989,7 @@
     const endY = sr.top + sr.height / 2;
     const cap = document.createElement('div');
     cap.className = 'cap-fly';
-    cap.innerHTML = pixelSvg('coin', 20);
+    cap.innerHTML = capSvg(type);
     cap.style.left = startX + 'px';
     cap.style.top = startY + 'px';
     document.body.appendChild(cap);
@@ -2157,6 +2158,18 @@
     ctx.globalAlpha = 1;
   }
 
+  // 瓶盖配色(按瓶子类型): 玻璃/黄金/翡翠, 与 BOTTLE_TYPES 材质呼应
+  const CAP_COLORS = {
+    glass: { fill: '#bcd8f5', stroke: '#3d8fd4' },
+    gold:  { fill: '#ffd166', stroke: '#e8890c' },
+    jade:  { fill: '#6ee7a0', stroke: '#2f9e6f' },
+  };
+  // 飞行瓶盖的 SVG(与瓶子上盖子的造型/配色一致: 扁矩形盖 + 类型配色)
+  function capSvg(type) {
+    const cc = CAP_COLORS[type] || CAP_COLORS.glass;
+    return `<svg viewBox="0 0 24 12" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="2.5" width="18" height="7" rx="1.5" fill="${cc.fill}" stroke="${cc.stroke}" stroke-width="2"/></svg>`;
+  }
+
   // 正视图瓶子(瓶口朝上, -y 方向), 始终以正面朝向镜头绘制
   // type: 瓶子类型(玻璃/黄金/翡翠), 颜色与光晕查 BOTTLE_TYPES; heat: 连击提亮档(0/1/2)
   // frozen: 冻结灰白去饱和(冷却中的瓶子失去本色, 与正常瓶区分)
@@ -2226,11 +2239,6 @@
     drawBottleFront(ctx, b.type, highlight, heat, b.golden);
     // 瓶盖: 非冷却期(可操作)瓶子盖上盖子, 按类型配色; 飞行中/冷却中不画
     if (!b.cooling && !b.flying) {
-      const CAP_COLORS = {
-        glass: { fill: '#bcd8f5', stroke: '#3d8fd4' },
-        gold:  { fill: '#ffd166', stroke: '#e8890c' },
-        jade:  { fill: '#6ee7a0', stroke: '#2f9e6f' },
-      };
       const cc = CAP_COLORS[b.type] || CAP_COLORS.glass;
       const capHw = 9, capH = 7;                 // 盖子半宽/高(比瓶口 TOP_W=7 稍宽)
       ctx.save();

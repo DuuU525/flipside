@@ -265,16 +265,16 @@ kbd {
   font-size: 12px;
 }
 
-/* 瓶盖飞向 HUD 的飞行粒子 */
+/* 瓶盖飞向 HUD 的飞行粒子(造型与瓶子上盖子一致: 扁矩形盖 + 类型配色) */
 .cap-fly {
   position: fixed;
   z-index: 120;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 12px;
   pointer-events: none;
-  margin: -10px 0 0 -10px;   /* 以中心点定位 */
+  margin: -6px 0 0 -12px;   /* 以中心点定位 */
 }
-.cap-fly svg { width: 20px; height: 20px; display: block; }
+.cap-fly svg { width: 24px; height: 12px; display: block; }
 
 /* 瓶盖数字弹跳(数值变化时): 增加=绿 / 消耗=红 */
 .stat-value.pop-gain {

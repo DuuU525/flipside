@@ -97,6 +97,11 @@
   <div class="tech-overlay-card">
     <div class="tech-overlay-head">
       <span class="tech-overlay-title"><span id="techTitleIcon"></span>科技树</span>
+      <div class="tech-points-bar">
+        <span class="tech-points-label">科技点</span>
+        <b id="techPointsCount">0</b><span class="tech-points-cap">/ 60</span>
+        <button id="buyTechPointBtn" class="tech-buy-btn" title="用瓶盖兑换科技点">+1 (<span id="techPointPrice">100</span>盖)</button>
+      </div>
       <button id="techCloseBtn" class="tech-close" aria-label="关闭"></button>
     </div>
     <div class="tech-overlay-body">
@@ -107,7 +112,7 @@
         <span class="tech-legend"><i class="lg lg-good"></i>已解锁</span>
         <span class="tech-legend"><i class="lg lg-ready"></i>可解锁</span>
         <span class="tech-legend"><i class="lg lg-lock"></i>未解锁</span>
-        <span class="tech-legend"><i class="lg lg-max"></i>可升级</span>
+        <span class="tech-legend"><i class="lg lg-max"></i>占点数</span>
       </div>
       <div class="tech-foot-right">
         <span class="tech-hint">拖拽平移 · 滚轮缩放</span>

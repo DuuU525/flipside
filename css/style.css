@@ -804,6 +804,31 @@ kbd {
   gap: 8px;
 }
 #techTitleIcon { display: inline-flex; align-items: center; }
+.tech-points-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  margin-right: 16px;
+  font-size: 14px;
+}
+.tech-points-label { color: var(--muted); }
+.tech-points-bar b { color: #ffd166; font-size: 16px; }
+.tech-points-cap { color: var(--muted); }
+.tech-buy-btn {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 6px 12px;
+  border: 1px solid #ffd166;
+  border-radius: 0;
+  background: transparent;
+  color: #ffd166;
+  cursor: pointer;
+  letter-spacing: 1px;
+  transition: background 0.15s ease;
+}
+.tech-buy-btn:hover { background: rgba(255, 209, 102, 0.12); }
+.tech-buy-btn:disabled { opacity: 0.4; cursor: default; }
 .tech-close {
   width: 34px; height: 34px;
   border: none; border-radius: 0;

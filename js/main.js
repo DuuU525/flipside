@@ -139,7 +139,7 @@
 
   // ============================ 存档版本 ============================
   // 修改存档结构时 +1, 并在 loadState 的迁移分支里逐版本升级旧档
-  const SAVE_VERSION = 6;
+  const SAVE_VERSION = 7;
 
   // ============================ 状态 ============================
   let caps = 0, best = 0, streak = 0, attempts = 0;
@@ -158,7 +158,9 @@
 
   // 功能界面 / 科技树 / 道具
   let panelUnlocked = false;
-  let techLevels = {};               // id -> 等级(0=未解锁)
+  let techLevels = {};               // id -> 0(未解锁) 或 maxLevel/1(已解锁满级); 模型A一次性满级
+  let techPoints = 0;                // 当前剩余可分配科技点
+  let spentTechPoints = 0;           // 累计已购买科技点总数(决定第 N 点价格, 上限 CONFIG.techPoints.max)
   let itemsOwned = {};               // id -> 已购买数量
   let stats = { earned: 0, inverted: 0, specialHits: 0, maxStreak: 0, golden: 0, consecutiveLie: 0 };  // 累计统计
   let achievements = {};             // 已达成成就 id -> true
@@ -230,6 +232,44 @@
       if (ver < 6) {
         if ((techLevels.special || 0) > 0 && (techLevels.expand || 0) <= 0) techLevels.expand = 1;
       }
+      // 存档迁移 v6 → v7: 科技点经济重构(节点由花瓶盖改为花科技点, 一次性满级)。
+      // 旧档科技等级清零, 按旧花费表退还已投入的瓶盖, 玩家重新兑换科技点。
+      if (ver < 7) {
+        const oldTechCosts = {
+          branchBottle: { cost: 80 }, branchLuck: { cost: 80 }, branchHand: { cost: 80 },
+          expand: { cost: 100, up: 100 }, special: { cost: 280, up: 200 },
+          expandCap: { cost: 150, up: 150 }, jadeCraft: { cost: 400, up: 280 },
+          hammerGlass: { cost: 80, up: 40 }, hammerGold: { cost: 120, up: 80 }, hammerJade: { cost: 160, up: 120 },
+          cdGlass: { cost: 150, up: 150 }, cdGold: { cost: 250, up: 250 }, cdJade: { cost: 400, up: 400 },
+          stability: { cost: 180 }, balance: { cost: 280 },
+          godhand: { cost: 400, ups: [200, 260] },
+          streak: { cost: 100 }, streakReward: { cost: 320, ups: [180, 240] }, streakWindow: { cost: 180, ups: [220, 260] },
+          unlockHand: { cost: 180 }, handFreq: { cost: 140, up: 140 }, handLuck: { cost: 140, up: 140 },
+        };
+        let refund = 0;
+        for (const [id, lv] of Object.entries(techLevels)) {
+          const c = oldTechCosts[id];
+          if (!c || lv <= 0) continue;
+          refund += c.cost;                       // 解锁费
+          for (let i = 1; i < lv; i++) {          // 升级费
+            if (c.ups) refund += c.ups[i - 1] || 0;
+            else if (c.up) refund += c.up;
+          }
+        }
+        if (refund > 0) { caps += refund; scoreDisplay = caps; }
+        techLevels = {};                          // 等级清零
+        techPoints = 0;                           // 科技点清零(旧档无科技点概念)
+        spentTechPoints = 0;
+      }
+      // 读取科技点(新档)
+      const tp = localStorage.getItem('pbottle.techPoints');
+      if (tp) {
+        try {
+          const parsed = JSON.parse(tp);
+          if (typeof parsed.points === 'number') techPoints = parsed.points;
+          if (typeof parsed.spent === 'number') spentTechPoints = parsed.spent;
+        } catch (e) {}
+      }
       const s = localStorage.getItem('pbottle.stats');
       if (s) stats = Object.assign(stats, JSON.parse(s));
       const ach = localStorage.getItem('pbottle.achievements');
@@ -263,6 +303,7 @@
       localStorage.setItem('pbottle.attempts', String(attempts));
       localStorage.setItem('pbottle.panel', panelUnlocked ? '1' : '0');
       localStorage.setItem('pbottle.tech', JSON.stringify(techLevels));
+      localStorage.setItem('pbottle.techPoints', JSON.stringify({ points: techPoints, spent: spentTechPoints }));
       localStorage.setItem('pbottle.items', JSON.stringify(itemsOwned));
       localStorage.setItem('pbottle.stats', JSON.stringify(stats));
       localStorage.setItem('pbottle.achievements', JSON.stringify(achievements));
@@ -274,10 +315,28 @@
   }
   function owned(id) { return itemsOwned[id] || 0; }
   function techLevel(id) { return techLevels[id] || 0; }
-  // 节点从 lv 级升到 lv+1 级的费用: 支持递增费用(upgradeCosts 数组)或固定费用(upgradeCost 标量)
-  function upgradePrice(node, lv) {
-    if (Array.isArray(node.upgradeCosts)) return node.upgradeCosts[lv - 1] || node.upgradeCost;
-    return node.upgradeCost;
+  // 科技点价格: 第 N 点 = baseCost × growth^(N-1)(N 从 1 起, 即第 spentTechPoints+1 个科技点)
+  function techPointPrice() {
+    return Math.round(CONFIG.techPoints.baseCost * Math.pow(CONFIG.techPoints.growth, spentTechPoints));
+  }
+  // 兑换科技点: 瓶盖 → 科技点, 可选成就门槛(开关默认关)
+  function buyTechPoint() {
+    if (spentTechPoints >= CONFIG.techPoints.max) { flashInsufficient(); return false; }
+    if (CONFIG.techPoints.achieveGate) {
+      const need = Math.ceil((spentTechPoints + 1) / 5);
+      if (achievementCount() < need) {
+        notifyTip('lock', '需达成 ' + need + ' 个成就');
+        return false;
+      }
+    }
+    const price = techPointPrice();
+    if (!spendCaps(price)) return false;
+    techPoints += 1;
+    spentTechPoints += 1;
+    Sound.purchase();
+    renderPanel();
+    saveState();
+    return true;
   }
   // 道具可购上限: 瓶子类由对应科技等级动态决定, 非瓶子类(手/锤子)读 item.max
   function itemCap(id) {
@@ -837,6 +896,8 @@
     scoreDisplay = 0;
     panelUnlocked = false;
     techLevels = {};
+    techPoints = 0;
+    spentTechPoints = 0;
     itemsOwned = {};
     stats = { earned: 0, inverted: 0, specialHits: 0, maxStreak: 0, golden: 0, consecutiveLie: 0 };
     achievements = {};
@@ -885,7 +946,7 @@
 
   // ============================ 功能界面(道具/科技树) ============================
 
-  // 节点状态: unlocked(已解锁) / available(前置满足且瓶盖足够,可解锁) / poor(前置满足但瓶盖不足) / locked(前置未满足)
+  // 节点状态: unlocked(已解锁) / available(前置满足且科技点足够,可解锁) / poor(前置满足但科技点不足) / locked(前置未满足)
   function techNodeState(node) {
     if (node.isRoot) {
       if (panelUnlocked) return 'unlocked';
@@ -893,13 +954,9 @@
     }
     if (!panelUnlocked) return 'locked';       // 科技树功能未解锁, 全部锁定
     const lv = techLevel(node.id);
-    if (lv > 0) {                              // 已解锁: 可升级节点若未满级, 按升级费判 available/poor
-      if (!node.maxLevel) return 'unlocked';
-      if (lv >= node.maxLevel) return 'unlocked';
-      return caps >= upgradePrice(node, lv) ? 'available' : 'poor';
-    }
+    if (lv > 0) return 'unlocked';             // 已解锁(一次性满级, 无升级)
     if (node.prereq && techLevel(node.prereq) <= 0) return 'locked';  // 前置未满足
-    return caps >= node.cost ? 'available' : 'poor';  // 前置满足, 再看瓶盖是否足够
+    return techPoints >= node.points ? 'available' : 'poor';  // 前置满足, 再看科技点是否足够
   }
 
   // ============================ 科技树视图(拖拽平移 + 滚轮缩放) ============================
@@ -997,15 +1054,14 @@
     for (const node of visibleNodes) {
       const p = pos[node.id];
       const st = techNodeState(node);
-      const lv = techLevel(node.id);
-      const isMax = !!node.maxLevel;
       let pulse = '';
       if (st === 'available') {
         pulse = `<rect class="t-pulse" x="${p.x - 32}" y="${p.y - 32}" width="64" height="64" fill="none" stroke="#ffc857"/>`;
       }
-      let lvBadge = '';
-      if (isMax) {
-        lvBadge = `<rect class="t-lv-badge" x="${p.x + 13}" y="${p.y - 33}" width="20" height="20" rx="3"/><text class="t-lv-text" x="${p.x + 23}" y="${p.y - 23}">${lv}</text>`;
+      // 占点数徽章(右上角): 模型A 一次性解锁, 显示该节点消耗的科技点
+      let pointsBadge = '';
+      if (!node.isRoot) {
+        pointsBadge = `<rect class="t-lv-badge" x="${p.x + 13}" y="${p.y - 33}" width="20" height="20" rx="3"/><text class="t-lv-text" x="${p.x + 23}" y="${p.y - 23}">${node.points}</text>`;
       }
       // 解锁/升级动画: 扩散环 + 节点弹跳(刚解锁/升级的节点)
       let fxHtml = '';
@@ -1014,16 +1070,34 @@
         const fxColor = techAnim.kind === 'upgrade' ? '#4cc9f0' : '#ffc857';
         fxHtml = `<rect class="t-fx-ring" x="${p.x - 32}" y="${p.y - 32}" width="64" height="64" fill="none" stroke="${fxColor}"/>`;
       }
-      // 节点仅展示 icon(名称/消耗/详情见 tooltip); 可升级节点右上角保留 Lv 徽章(方形角标)
+      // 节点仅展示 icon(名称/消耗/详情见 tooltip); 占点数显示在右上角角标
       html += `<g class="t-node ${st}${animCls}" data-tech-id="${node.id}">
         ${pulse}
         <rect class="t-ring" x="${p.x - 32}" y="${p.y - 32}" width="64" height="64"/>
         ${pixelTechIcon(node.icon || 'question', p.x, p.y)}
-        ${lvBadge}
+        ${pointsBadge}
         ${fxHtml}
       </g>`;
     }
     techSvg.innerHTML = `<g id="techViewport" transform="${techTransform()}">${html}</g>`;
+    updateTechPointsUI();
+  }
+
+  // 更新科技点余额与兑换价格显示
+  function updateTechPointsUI() {
+    const cntEl = document.getElementById('techPointsCount');
+    const priceEl = document.getElementById('techPointPrice');
+    const btn = document.getElementById('buyTechPointBtn');
+    if (cntEl) cntEl.textContent = techPoints;
+    if (priceEl) priceEl.textContent = techPointPrice();
+    if (btn) {
+      btn.disabled = spentTechPoints >= CONFIG.techPoints.max;
+      if (spentTechPoints >= CONFIG.techPoints.max) {
+        btn.innerHTML = '已满';
+      } else {
+        btn.innerHTML = '+1 (<span id="techPointPrice">' + techPointPrice() + '</span>盖)';
+      }
+    }
   }
 
   // ============================ 科技树悬浮提示 ============================
@@ -1042,27 +1116,13 @@
     const lv = techLevel(node.id);
     const prereq = node.prereq ? TECH_TREE.find(t => t.id === node.prereq) : null;
     const prereqName = prereq ? pixelSvg(prereq.icon, 14) + ' ' + prereq.name : '无';
-    // 等级行(统一展示当前等级)
-    let lvLine;
-    if (node.maxLevel) {
-      lvLine = lv >= node.maxLevel
-        ? 'Lv.' + lv + '（满级）'
-        : 'Lv.' + lv + ' / Lv.' + node.maxLevel;
-    } else {
-      lvLine = lv > 0 ? 'Lv.1' : 'Lv.0';
-    }
-    // 价格行(等级抽出后, 不再重复等级信息)
-    let priceLine;
-    if (node.maxLevel) {
-      priceLine = lv >= node.maxLevel
-        ? '已满级'
-        : (lv > 0 ? '升级 ' + upgradePrice(node, lv) + ' 瓶盖' : '解锁 ' + node.cost + ' 瓶盖');
-    } else {
-      priceLine = lv > 0 ? '已解锁' : '解锁 ' + node.cost + ' 瓶盖';
-    }
+    // 状态行(模型A一次性满级, 无等级)
+    const lvLine = lv > 0 ? '已解锁' : '未解锁';
+    // 消耗行(科技点)
+    const priceLine = lv > 0 ? '已解锁' : '消耗 ' + node.points + ' 科技点';
     return `<div class="tech-tip-head"><span class="tech-tip-icon">${pixelSvg(node.icon || 'question', 30)}</span><span class="tech-tip-name">${node.name}</span></div>
       <div class="tech-tip-detail">${node.detail || node.desc}</div>
-      <div class="tech-tip-meta"><span>等级：${lvLine}</span><span>价格：${priceLine}</span><span>前置：${prereqName}</span></div>`;
+      <div class="tech-tip-meta"><span>状态：${lvLine}</span><span>消耗：${priceLine}</span><span>前置：${prereqName}</span></div>`;
   }
 
   function positionTechTip(x, y) {
@@ -1455,15 +1515,13 @@
     if (!panelUnlocked) return;                              // 科技树功能未解锁
     const node = TECH_TREE.find(t => t.id === id);
     if (!node) return;
-    const lv = techLevel(id);
-    if (lv > 0 && !node.maxLevel) return;                    // 一次性节点已解锁, 不可重复
-    if (node.maxLevel && lv >= node.maxLevel) return;        // 已满级
+    if (techLevel(id) > 0) return;                           // 已解锁(一次性满级, 不可重复)
     if (node.prereq && techLevel(node.prereq) <= 0) return;  // 前置未解锁
-    const price = lv === 0 ? node.cost : upgradePrice(node, lv);
-    if (!spendCaps(price)) return;
-    techLevels[id] = lv + 1;
+    if (techPoints < node.points) { flashInsufficient(); return; }  // 科技点不足
+    techPoints -= node.points;                               // 消耗科技点
+    techLevels[id] = node.maxLevel || 1;                     // 一次性满级(maxLevel 用于数值函数算满级效果)
     // 解锁/升级动画: 记录节点与类型, renderTech 渲染扩散环 + 弹跳, 600ms 后清除
-    techAnim = { id, kind: lv === 0 ? 'unlock' : 'upgrade' };
+    techAnim = { id, kind: 'unlock' };
     if (techAnimTimer) clearTimeout(techAnimTimer);
     techAnimTimer = setTimeout(() => { techAnim = null; techAnimTimer = null; renderTech(); }, 600);
     Sound.purchase();
@@ -2528,7 +2586,7 @@
   // ============================ 调试钩子 ============================
   window.__pbottle = {
     bottles: () => bottles.map(b => ({ state: b.state, type: b.type, flying: b.flying, cooling: b.cooling, coolUntil: b.coolUntil, thawUntil: b.thawUntil, rejectUntil: b.rejectUntil, claimed: b.claimed, free: b.free, wx: +b.wx.toFixed(0), wy: +b.wy.toFixed(0), h: +b.h.toFixed(0), rot: +b.rot.toFixed(2), phi: +b.phi.toFixed(2), tumbleTurns: b.tumbleTurns, spinTurns: b.spinTurns, heat: b.heat, fxGhost: b.fxGhost, ghosts: ghosts.length })),
-    stats: () => ({ caps, streak, best, attempts, panelUnlocked, tech: { ...techLevels }, items: { ...itemsOwned }, lifetime: { ...stats }, achievements: { ...achievements }, milestones: MILESTONES.filter(m => milestoneUnlocked(m.id)).map(m => m.id), maxBottles: currentMaxBottles(), hammerMode, streakWindowMs: streakWindowMs(), streakExpireAt }),
+    stats: () => ({ caps, streak, best, attempts, panelUnlocked, tech: { ...techLevels }, techPoints, spentTechPoints, techPointPrice: techPointPrice(), items: { ...itemsOwned }, lifetime: { ...stats }, achievements: { ...achievements }, milestones: MILESTONES.filter(m => milestoneUnlocked(m.id)).map(m => m.id), maxBottles: currentMaxBottles(), hammerMode, streakWindowMs: streakWindowMs(), streakExpireAt }),
     music: () => ({ enabled: Music.isEnabled(), volume: +Music.getVolume().toFixed(2), playing: Music.isPlaying(), tempoTargetMs: Math.max(CONFIG.musicStreak.minStepMs, CONFIG.musicStreak.baseStepMs - streak * CONFIG.musicStreak.stepPerStreak), tempoCurrentMs: +Music.getTempo().toFixed(1), layers: { bass: streak >= CONFIG.musicStreak.bassAt, harmony: streak >= CONFIG.musicStreak.harmonyAt, hat: streak >= CONFIG.musicStreak.hatAt } }),
     hands: () => hands.map(h => ({ state: h.state, acc: +h.acc.toFixed(0), target: h.target ? h.target.type : null })),
     ranges: () => ({ ...effectiveRanges(), pointer: +chargePointer(chargePhase).toFixed(3), charging: !!charging, perHandInterval: perHandInterval() }),
@@ -2544,6 +2602,9 @@
   const techTitleIcon = document.getElementById('techTitleIcon');
   if (techTitleIcon) techTitleIcon.innerHTML = pixelSvg('dna', 18);
   if (techCloseBtn) techCloseBtn.innerHTML = pixelSvg('close', 16);
+  // 兑换科技点按钮
+  const buyTechPointBtn = document.getElementById('buyTechPointBtn');
+  if (buyTechPointBtn) buyTechPointBtn.addEventListener('click', () => { buyTechPoint(); renderTech(); });
   Music.setStreakGetter(() => streak);   // 音乐节奏与连击挂钩
   loadState();
   rollDaily();

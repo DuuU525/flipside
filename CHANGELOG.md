@@ -5,6 +5,39 @@
 
 ---
 
+## [未发布] — v1.0.12
+
+> 主题：科技点经济重构（阶段一：科技点兑换 + 节点占点 + 一次性满级）。
+
+### 新增
+
+- **科技点经济**：科技解锁从「直接花瓶盖」改为「瓶盖兑换科技点（通用池 60 上限），节点花科技点解锁」。
+  兑换价格随累计购买数几何递增（第 N 点 = 100 × 1.15^(N-1)），第 1 点 100 盖、越往后越贵，
+  60 点总价约 130 万盖，经济上"不可能全买满"，为后续双方向取舍铺路。
+- **节点占点数**：每个科技节点标注消耗科技点（占点数），右上角角标显示；tooltip 显示「状态/消耗/前置」。
+- **一次性满级（模型 A）**：多级节点压缩为「花占点数一次性解锁 = 直接满级效果」，不再逐级升级；
+  `maxLevel` 仅用于计算满级效果值（如 expand 解锁即 20 瓶上限、cdGlass 解锁即 1.5s 冷却）。
+
+### 改动
+
+- `js/data.js`：`CONFIG.techPoints`（max/baseCost/growth/achieveGate）；`TECH_TREE` 节点删 `cost`/`upgradeCost*`，
+  加 `points`（占点）+ `side`（infra/A/B 分类，为后续沙漏双方向布局预留）。
+- `js/main.js`：`techPoints`/`spentTechPoints` 状态；`techPointPrice()`/`buyTechPoint()` 兑换；
+  `unlockTech` 花科技点一次性满级；`techNodeState`/`techTipHTML`/`renderTech` 改用占点数；
+  存档持久化 `pbottle.techPoints`；`SAVE_VERSION` 6→7。
+- **存档迁移 v6→v7**：旧档科技等级清零，按旧花费表**退还已投入的科技瓶盖**（含解锁费 + 升级费），
+  玩家重新兑换科技点；科技点从 0 开始。
+- `index.html`/`css/style.css`：科技树 overlay 头部加「科技点余额 + 兑换按钮」。
+
+### 待续（后续阶段）
+
+- 阶段二：沙漏形双方向布局（A 倒立瓶向上 / B 正立瓶向下 / 根在瓶口对接）。
+- 阶段三：新增方向节点（pointerSlow/perfect/goldenLuck/offline/handStreak/handGolden/handSync/autoHarvest/handReport）+ 终极节点（倒立宗师/自动化工厂）+ Zoom/桌面事件。
+- 阶段四：重置功能（重新分配方向点 + 清空手）+ 成就门槛开关接入。
+- 设计文档见 `docs/tech-direction.md`。
+
+---
+
 ## [v1.0.11] — 2026-09-15
 
 > 主题：音效音乐反馈优化（针对后期瓶/手数量增多的场景）。

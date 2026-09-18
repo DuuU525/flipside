@@ -1154,7 +1154,7 @@
       const kids = infraChildren[id] || [];
       if (!kids.length) { infraYSlot[id] = infraLeaf++; return; }
       let s = 0;
-      for (const k of kids) { assignInfraY(k); s += infraYSlot[k]; }
+      for (const k of kids) { assignInfraY(k.id); s += infraYSlot[k.id]; }
       infraYSlot[id] = s / kids.length;
     })(infraRoot.id);
     sideGroups.infra.forEach(n => {

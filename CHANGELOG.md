@@ -31,8 +31,25 @@
 
 ### 待续（后续阶段）
 
-- 阶段二：沙漏形双方向布局（A 倒立瓶向上 / B 正立瓶向下 / 根在瓶口对接）。
-- 阶段三：新增方向节点（pointerSlow/perfect/goldenLuck/offline/handStreak/handGolden/handSync/autoHarvest/handReport）+ 终极节点（倒立宗师/自动化工厂）+ Zoom/桌面事件。
+- 阶段四：重置功能（重新分配方向点 + 清空手）+ 成就门槛开关接入。
+- 设计文档见 `docs/tech-direction.md`。
+
+### 阶段二 + 阶段三（已并入 v1.0.12）
+
+- **沙漏形双方向布局**：A 倒立瓶向上（手动）/ B 正立瓶向下（挂机）/ 根节点在瓶口对接 / 基建环绕腰部，
+  两方向占点完全对称（各 35 点：基础 10 + 进阶 25），33 节点 + 根。
+- **方向节点补齐**（11+11 对称）：A 增 pointerSlow（指针减速）/ perfect（完美判定）/ goldenLuck（金色概率+）/ invertedMaster（倒立宗师·终极）；
+  B 增 handStreak（挂机连击）/ handGolden（手幸运）/ handSync（手速共享）/ offline（离线收益）/ autoHarvest（自动收获）/ handReport（挂机报告）/ autoFactory（自动化工厂·终极）。
+- **桌面奇妙事件**（autoFactory）：双通道触发（时间 3min/90s + 手连续命中 15/8 次），掉落瓶盖/瓶子/锤子；
+  掉落物进收获格子（base 2 格），格子满进过期倒计时（60s），autoHarvest 自动收过期掉落。
+- **Zoom 专注领域**（invertedMaster）：连击 ≥20 几率触发（封顶 12%），只高亮一个瓶子（无冷却），
+  桌面其他瓶暗淡 + 手暂停；随机挑战（连击+20 ×2 / 连续倒立3 ×5 / 连续倒立5 ×10），成功高额奖励、失败无奖励。
+- **离线收益**（offline）：关页后按挂机配置产出（上限 8h，折减 50%），回来自动发放。
+- **挂机报告**（handReport）：离线归来弹「离线收益 +N 瓶盖」总结。
+- 新增 3 个像素图标（clock/clipboard/gear）。
+
+### 待续（后续阶段）
+
 - 阶段四：重置功能（重新分配方向点 + 清空手）+ 成就门槛开关接入。
 - 设计文档见 `docs/tech-direction.md`。
 

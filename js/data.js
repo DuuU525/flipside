@@ -96,10 +96,22 @@
     // 方向 B 新节点效果(阶段三)
     offlineCapHours: 8,      // 离线收益: 累计上限(小时)
     offlineRate: 0.5,        // 离线收益: 折减系数(50%)
+    offlinePerHandPerSec: 0.5,  // 离线收益: 每手每秒基础瓶盖(约挂机基线)
     handStreakCap: 3,        // 挂机连击: 手命中也累计连击的上限
     handGoldenChance: 0.005, // 手幸运: 手触发金色瞬间概率(0.5%)
     handSyncMult: 0.8,       // 手速共享: 手总间隔 ×0.8(协同加速)
     harvestSlots: 3,         // 自动收获: 收获格子数量
+
+    // 桌面奇妙事件(阶段三·B: autoFactory 终极节点 + autoHarvest 自动收获)
+    event: {
+      intervalMs: 180000,       // 无终极: 时间通道判定间隔(3 分钟)
+      intervalFactoryMs: 90000, // 有终极: 判定间隔(90 秒)
+      chancePerInterval: 0.3,   // 每次判定的触发概率(30%)
+      handStreakTrigger: 15,    // 无终极: 手连续命中触发阈值
+      handStreakFactory: 8,     // 有终极: 手连续命中触发阈值
+      expireMs: 60000,          // 掉落物过期倒计时(60s)
+      baseSlots: 2,             // 无 autoHarvest 的收获格子数
+    },
 
     debug: false,         // 调试: 显示瓶子索引与状态
 

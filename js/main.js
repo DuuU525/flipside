@@ -150,6 +150,11 @@
   const hammerFx = [];       // 锤子敲击动画(落下→敲击→上弹)
   const goldenFx = [];       // 金色瞬间特效(冲击波环 + 上升星光)
   let goldenFlashUntil = 0;  // 金色瞬间全屏闪光结束时间戳
+  let drops = [];            // 桌面掉落物(奇妙事件): { id, kind, x, y, wx, wy, state, t0, expireAt, amount }
+  let eventTimer = 0;        // 时间通道累计(ms)
+  let handHitStreak = 0;     // 手连续命中计数(手连成通道)
+  let dropIdSeq = 0;         // 掉落物自增 id
+  let zoom = null;           // Zoom 专注领域: { bottle, target, targetCount, current, startStreak } | null
   let techAnim = null;       // 科技树解锁/升级动画 { id, kind: 'unlock'|'upgrade' }
   let techAnimTimer = null;  // 科技树动画清除定时器
   let combo = { count: 0, t0: 0, active: false };  // 街霸式连击提示
@@ -293,6 +298,28 @@
         if (typeof parsed.volume === 'number') Music.setVolume(parsed.volume);
         if (typeof parsed.enabled === 'boolean') Music.setEnabled(parsed.enabled);
       }
+      // 离线收益(offline 节点): 关页后按挂机配置产出, 回来计算并发放
+      const lastSeen = parseInt(localStorage.getItem('pbottle.lastSeen') || '0', 10) || 0;
+      if (lastSeen > 0 && techLevel('offline') > 0) {
+        const awayMs = Date.now() - lastSeen;
+        const awaySec = awayMs / 1000;
+        if (awaySec > 10) {   // 至少离线 10 秒才算
+          const capSec = CONFIG.offlineCapHours * 3600;
+          const effSec = Math.min(capSec, awaySec);
+          const hands = owned('hand');
+          if (hands > 0) {
+            const gained = Math.round(hands * effSec * CONFIG.offlinePerHandPerSec * CONFIG.offlineRate);
+            if (gained > 0) {
+              caps += gained; scoreDisplay = caps; stats.earned += gained;
+              if (caps > best) best = caps;
+              if (techLevel('handReport') > 0) {
+                notifyAchievement({ icon: 'clock', name: '离线收益 +' + gained + ' 瓶盖（离线 ' + Math.round(effSec / 60) + ' 分钟）' }, { title: '挂机报告' });
+              }
+              updateHUD();
+            }
+          }
+        }
+      }
     } catch (e) {}
   }
   function saveState() {
@@ -311,6 +338,7 @@
       localStorage.setItem('pbottle.daily', JSON.stringify(daily));
       localStorage.setItem('pbottle.sound', JSON.stringify({ volume: Sound.getVolume(), enabled: Sound.isEnabled() }));
       localStorage.setItem('pbottle.music', JSON.stringify({ volume: Music.getVolume(), enabled: Music.isEnabled() }));
+      localStorage.setItem('pbottle.lastSeen', String(Date.now()));   // 离线收益时间戳
     } catch (e) {}
   }
   function owned(id) { return itemsOwned[id] || 0; }
@@ -377,6 +405,7 @@
       ghostLast: 0,                            // 残影采样时间戳
       golden: false,                           // 金色瞬间(稀有彩蛋, 奖励×10 + 金色视觉)
       perfectHit: false,                       // 完美判定(直立命中完美区, 奖励 ×1.5)
+      zoomFocus: false,                        // Zoom 专注领域目标瓶(高亮 + 无冷却)
       targetAngle: 0,                          // 落地朝向(只随机一次, 避免落地瞬间重抽)
       t0: 0,
       resultState: 'lying',
@@ -734,9 +763,20 @@
     } else {
       if (!isHand) breakStreak();                           // 挂机平躺不影响连击
       if (!isHand) stats.consecutiveLie++;                  // 手动连续平躺计数(隐藏成就)
+      if (isHand) handHitStreak = 0;                        // 手平躺中断连成
       text = '';                          // 平躺不飘任何字
       Sound.fail(isHand);   // 平躺负反馈, 挂机衰减
     }
+    // 手连续命中通道(桌面事件): 手命中累计, 达阈值触发事件并重置
+    if (isHand && b.state !== 'lying') {
+      handHitStreak++;
+      const trigger = hasAutoFactory() ? CONFIG.event.handStreakFactory : CONFIG.event.handStreakTrigger;
+      if (handHitStreak >= trigger) { handHitStreak = 0; spawnDrop(); }
+    }
+    // Zoom 判定: 挑战目标瓶的抛瓶结果(成功/失败)
+    if (zoom) zoomSettle(b, b.state);
+    // Zoom 触发: 手动成功且连击≥20 时几率进入
+    if (!zoom && !isHand && b.state !== 'lying') tryTriggerZoom();
     if (caps > best) { best = caps; }
     if (streak > stats.maxStreak) { stats.maxStreak = streak; }
     updateHUD();
@@ -774,8 +814,8 @@
         b.rot = b.targetAngle;                // 复用抛瓶时定好的朝向, 不再重抽
         b.phi = b.tumbleTurns * Math.PI * 2;  // 空翻回正(整数圈 → 正面朝向镜头)
         b.flying = false;
-        b.cooling = true;                     // 落地进入冷却(结冰), 冷却结束前不可再抛
-        b.coolUntil = now + cooldownMs(b.type);
+        b.cooling = !b.zoomFocus;             // Zoom 目标瓶无冷却(连续挑战)
+        if (b.cooling) b.coolUntil = now + cooldownMs(b.type);
         Sound.land(b.source === 'hand');      // 落地撞击(挂机衰减)
         settleResult(b);
         continue;
@@ -832,7 +872,13 @@
     e.preventDefault();
     if (!started) return;
     const p = canvasPoint(e);
+    // 优先拾取掉落物(桌面奇妙事件)
+    const drop = hitDrop(p.x, p.y);
+    if (drop) { collectDrop(drop); return; }
     const b = hitBottle(p.x, p.y);
+    // Zoom 专注领域: 只允许操作目标瓶
+    if (zoom && b && b !== zoom.bottle) { return; }
+    if (zoom && !b) { return; }   // Zoom 内点空白不退出
     if (hammerMode) {
       // 敲碎模式: 点瓶子敲碎对应类型, 点空白退出
       if (b && !b.flying) {
@@ -921,6 +967,10 @@
     shards.length = 0;
     hammerFx.length = 0;
     goldenFx.length = 0;
+    drops.length = 0;
+    eventTimer = 0;
+    handHitStreak = 0;
+    zoom = null;
     techAnim = null;
     if (techAnimTimer) { clearTimeout(techAnimTimer); techAnimTimer = null; }
     combo = { count: 0, t0: 0, active: false };
@@ -2336,7 +2386,8 @@
     const lift = b.state === 'lying' ? BOTTOM_W * s : HALF_H * s; // 平躺中心在脚点上方半瓶宽(躺倒后瓶身半宽贴地), 立姿中心在脚点上方半瓶高
     const highlight = charging && charging.bottle === b;
     const heat = b.flying ? (b.heat || 0) : 0;                          // 连击提亮(仅飞行手动瓶)
-    const alpha = (b.flying && b.source === 'hand') ? CONFIG.streakFx.handAlpha : 1;  // 挂机瓶降权
+    let alpha = (b.flying && b.source === 'hand') ? CONFIG.streakFx.handAlpha : 1;  // 挂机瓶降权
+    if (zoom && !b.zoomFocus) alpha *= 0.35;                           // Zoom 内非目标瓶暗淡
     const scaleY = b.flying ? Math.max(0.10, Math.abs(Math.cos(b.phi))) : 1;          // 空翻透视压缩
     ctx.save();
     ctx.translate(p.x, p.y - lift);
@@ -2345,6 +2396,26 @@
     ctx.globalAlpha = alpha;
     ctx.scale(1, scaleY);
     drawBottleFront(ctx, b.type, highlight, heat, b.golden);
+    // Zoom 目标瓶: 紫色外轮廓光晕(在 drawBottleFront 重置 shadow 之后画)
+    if (b.zoomFocus) {
+      const bw = BOTTOM_W, tw = TOP_W, hh = HALF_H;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(199,146,234,0.9)';
+      ctx.lineWidth = 3;
+      ctx.shadowColor = 'rgba(199,146,234,0.8)';
+      ctx.shadowBlur = 14;
+      ctx.beginPath();
+      ctx.moveTo(-bw + 8, hh); ctx.lineTo(bw - 8, hh);
+      ctx.quadraticCurveTo(bw, hh, bw, hh - 8); ctx.lineTo(bw, -14);
+      ctx.quadraticCurveTo(bw, -28, 7, -28); ctx.lineTo(7, -44); ctx.lineTo(tw, -44);
+      ctx.lineTo(tw, -hh + 0.8); ctx.quadraticCurveTo(tw, -hh, tw - 3, -hh);
+      ctx.lineTo(-tw + 3, -hh); ctx.quadraticCurveTo(-tw, -hh, -tw, -hh + 0.8);
+      ctx.lineTo(-tw, -44); ctx.lineTo(-7, -44); ctx.lineTo(-7, -28);
+      ctx.quadraticCurveTo(-bw, -28, -bw, -14); ctx.lineTo(-bw, hh - 8);
+      ctx.quadraticCurveTo(-bw, hh, -bw + 8, hh);
+      ctx.closePath(); ctx.stroke();
+      ctx.restore();
+    }
     // 瓶盖: 非冷却期瓶子都盖盖子(可操作 + 飞行翻滚中都带着), 按类型配色; 冷却中(结冰)不画
     if (!b.cooling) {
       const cc = CAP_COLORS[b.type] || CAP_COLORS.glass;
@@ -2470,6 +2541,7 @@
     drawShards();                     // 瓶子碎裂碎片
     drawHammerFx();                   // 锤子落下敲击
     drawGoldenFx();                   // 金色瞬间特效(冲击波环 + 上升星光)
+    drawDrops();                      // 桌面掉落物(奇妙事件)
     if (charging) drawChargeBar();
 
     // 2) 最近邻放大到显示画布(产生像素颗粒)
@@ -2482,6 +2554,7 @@
     drawFloats();
     drawCombo();
     drawStreakTimer();
+    if (zoom) drawZoomHint();
     if (hammerMode) drawHammerHint();
     if (CONFIG.debug) drawDebug();
     // 金色瞬间全屏闪光(淡出)
@@ -2493,6 +2566,30 @@
         ui.fillRect(0, 0, CONFIG.worldW, CONFIG.worldH);
       }
     }
+  }
+
+  // Zoom 专注领域顶部提示
+  function drawZoomHint() {
+    if (!zoom) return;
+    let progress;
+    if (zoom.type === 'streak') progress = Math.max(0, streak - zoom.startStreak) + ' / ' + zoom.target;
+    else progress = zoom.current + ' / ' + zoom.target;
+    const txt = 'ZOOM ' + zoom.label + ' · 进度 ' + progress + ' · 只抛高亮瓶';
+    ui.save();
+    ui.font = 'bold 16px ' + PIXEL_FONT;
+    ui.textAlign = 'left';
+    const w = ui.measureText(txt).width + 36;
+    const x0 = (CONFIG.worldW - w) / 2;
+    roundRect(ui, x0, 12, w, 34, 17);
+    ui.fillStyle = 'rgba(30,18,50,0.7)';
+    ui.fill();
+    ui.strokeStyle = 'rgba(199,146,234,0.8)';
+    ui.lineWidth = 1.5;
+    ui.stroke();
+    pixelCanvas(ui, 'sparkle', x0 + 16, 20, 18);
+    ui.fillStyle = '#c792ea';
+    ui.fillText(txt, x0 + 18 + 22, 34);
+    ui.restore();
   }
 
   // 敲碎模式顶部提示
@@ -2601,8 +2698,185 @@
     if (techLevel('handSync') > 0) iv *= CONFIG.handSyncMult;   // 手速共享科技
     return iv;
   }
-  function updateAutoThrow(dt) {
+  // ============================ 桌面奇妙事件(掉落物) ============================
+  // 事件触发(双通道): ①时间通道 ②手连续命中通道; 掉落物落桌面, 进格子或过期
+  function hasAutoFactory() { return techLevel('autoFactory') > 0; }
+  function hasAutoHarvest() { return techLevel('autoHarvest') > 0; }
+  function harvestSlotCount() {
+    return hasAutoHarvest() ? CONFIG.harvestSlots : CONFIG.event.baseSlots;
+  }
+  // 当前占用格子数(仅 state==='grid' 的掉落占格)
+  function gridDropCount() { return drops.filter(d => d.state === 'grid').length; }
+
+  // 生成一个掉落物(随机种类: 瓶盖/玻璃瓶/锤子, 受科技解锁限制)
+  function spawnDrop() {
+    const ev = CONFIG.event;
+    // 可掉落的种类: 瓶盖恒可; 玻璃瓶需 expand 解锁; 锤子需对应 hammer 解锁
+    const kinds = ['caps'];
+    if (techLevel('expand') > 0) kinds.push('bottle');
+    const hammerKinds = [];
+    if (techLevel('hammerGlass') > 0) hammerKinds.push('glassHammer');
+    if (techLevel('hammerGold') > 0) hammerKinds.push('goldHammer');
+    if (techLevel('hammerJade') > 0) hammerKinds.push('jadeHammer');
+    if (hammerKinds.length) kinds.push('hammer');
+    const kind = kinds[(Math.random() * kinds.length) | 0];
+    // 随机桌面位置
+    const wx = CONFIG.minGap + Math.random() * (CONFIG.table.w - 2 * CONFIG.minGap);
+    const wy = CONFIG.minGap + Math.random() * (CONFIG.table.d - 2 * CONFIG.minGap);
+    const p = project(wx, wy, 0);
+    let amount = 0, itemId = '';
+    if (kind === 'caps') amount = 10 + ((Math.random() * 40) | 0) * 5;   // 10~200 瓶盖
+    else if (kind === 'bottle') itemId = 'extraBottle';
+    else itemId = hammerKinds[(Math.random() * hammerKinds.length) | 0];
+    // 格子满 → 过期状态; 否则进格子
+    const full = gridDropCount() >= harvestSlotCount();
+    drops.push({
+      id: ++dropIdSeq, kind, itemId, amount,
+      wx, wy, x: p.x, y: p.y,
+      state: full ? 'expiring' : 'grid',
+      t0: performance.now(),
+      expireAt: performance.now() + ev.expireMs,
+    });
+    Sound.coinDing();
+  }
+
+  // 事件更新: 时间通道判定 + 过期倒计时 + 自动收获
+  function updateEvents(dt, now) {
     if (!started) return;
+    const ev = CONFIG.event;
+    // 时间通道: 有终极工厂判定更频繁
+    const interval = hasAutoFactory() ? ev.intervalFactoryMs : ev.intervalMs;
+    eventTimer += dt;
+    if (eventTimer >= interval) {
+      eventTimer = 0;
+      if (Math.random() < ev.chancePerInterval) spawnDrop();
+    }
+    // 过期倒计时 + 自动收获(只收 expiring)
+    for (let i = drops.length - 1; i >= 0; i--) {
+      const d = drops[i];
+      if (d.state === 'expiring') {
+        if (hasAutoHarvest()) { collectDrop(d); continue; }   // 自动收获过期掉落
+        if (now >= d.expireAt) { drops.splice(i, 1); continue; }  // 无自动收获 → 过期流失
+      }
+    }
+  }
+
+  // 拾取掉落物(手动点击 或 自动收获)
+  function collectDrop(d) {
+    const idx = drops.indexOf(d);
+    if (idx < 0) return;
+    if (d.kind === 'caps') {
+      caps += d.amount; scoreDisplay = caps;
+      addFloatText(d.x, d.y - 20, '+' + d.amount, '#ffd166', 'coin');
+      if (caps > best) best = caps;
+    } else if (d.kind === 'bottle') {
+      spawnBottle('glass');
+      addFloatText(d.x, d.y - 20, '+玻璃瓶', '#bcd8f5', 'bottle');
+    } else {
+      itemsOwned[d.itemId] = (itemsOwned[d.itemId] || 0) + 1;
+      addFloatText(d.x, d.y - 20, '+锤子', '#ffc857', 'hammer');
+    }
+    drops.splice(idx, 1);
+    Sound.purchase();
+    updateHUD();
+    renderPanel();
+    saveState();
+  }
+
+  // 点击命中掉落物(优先于瓶子判定)
+  function hitDrop(mx, my) {
+    for (const d of drops) {
+      if (Math.hypot(d.x - mx, d.y - my) < 26) return d;
+    }
+    return null;
+  }
+
+  // 绘制掉落物(瓶盖/瓶子/锤子图标 + 格子/过期视觉)
+  function drawDrops() {
+    for (const d of drops) {
+      const now = performance.now();
+      let icon = 'coin';
+      if (d.kind === 'bottle') icon = 'bottle';
+      else if (d.kind === 'hammer') icon = 'hammer';
+      // 过期掉落: 闪烁 + 渐隐(最后 1/3)
+      let alpha = 1;
+      if (d.state === 'expiring') {
+        const remain = (d.expireAt - now) / CONFIG.event.expireMs;
+        alpha = 0.6 + 0.4 * Math.sin(now / 120);
+        if (remain < 0.33) alpha *= Math.max(0.2, remain / 0.33);
+      }
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      // 光晕 + 图标
+      const glow = d.kind === 'caps' ? 'rgba(255,209,102,0.5)' : 'rgba(143,208,255,0.5)';
+      ctx.shadowColor = glow; ctx.shadowBlur = 10;
+      pixelCanvas(ctx, icon, d.x - 13, d.y - 13, 26);
+      ctx.restore();
+    }
+  }
+
+  // ============================ Zoom 专注领域(倒立宗师 · A 方向终极) ============================
+  // 触发: 手动抛瓶成功且连击≥20 + 已解锁倒立宗师, 概率触发(连击越高越易)
+  // 状态: 只高亮一个瓶子(无冷却), 桌面其他瓶暗淡暂停; 挑战随机目标, 成功高额奖励, 失败无奖励
+  function zoomChance() {
+    if (techLevel('invertedMaster') <= 0 || streak < 20) return 0;
+    // 宗师满级乘数 30, 基础 0.2%, 连击系数 streak/20, 封顶 12%
+    return Math.min(0.12, 0.002 * 30 * (streak / 20));
+  }
+  function tryTriggerZoom() {
+    if (zoom || Math.random() >= zoomChance()) return;
+    // 选一个非冷却、非飞行、非平躺的瓶子作为 Zoom 目标瓶
+    const candidates = bottles.filter(b => !b.cooling && !b.flying && b.state !== 'lying');
+    if (!candidates.length) return;
+    const b = candidates[(Math.random() * candidates.length) | 0];
+    // 随机挑战目标: 连击+20(×2) / 连续倒立3(×5) / 连续倒立5(×10)
+    const targets = [
+      { type: 'streak', target: 20, mult: 2,  label: '连击 +20' },
+      { type: 'invert', target: 3,  mult: 5,  label: '连续倒立 ×3' },
+      { type: 'invert', target: 5,  mult: 10, label: '连续倒立 ×5' },
+    ];
+    const t = targets[(Math.random() * targets.length) | 0];
+    zoom = { bottle: b, type: t.type, target: t.target, mult: t.mult, label: t.label, current: 0, startStreak: streak };
+    b.zoomFocus = true;
+    // 提示进入 Zoom
+    addFloatText(b.x === undefined ? 0 : project(b.wx, b.wy, 0).x, project(b.wx, b.wy, 0).y - 160, 'ZOOM! ' + t.label, '#c792ea', 'sparkle');
+    Sound.golden();
+  }
+  // Zoom 抛瓶结果判定(在 settleResult 内调用)
+  function zoomSettle(b, state) {
+    if (!zoom || b !== zoom.bottle) return;
+    if (state === 'lying') { endZoom(false); return; }   // 平躺 → 失败
+    if (zoom.type === 'streak') {
+      if (streak >= zoom.startStreak + zoom.target) endZoom(true);
+    } else {  // invert
+      zoom.current++;
+      if (zoom.current >= zoom.target) endZoom(true);
+    }
+  }
+  function endZoom(success) {
+    if (!zoom) return;
+    const b = zoom.bottle;
+    const baseReward = Math.round(zoom.startStreak * 5);   // 奖励基数(约等于正常连击收益)
+    let gained = 0;
+    if (success) {
+      gained = baseReward * zoom.mult;
+      caps += gained; scoreDisplay = caps; stats.earned += gained;
+      if (caps > best) best = caps;
+      addFloatText(project(b.wx, b.wy, 0).x, project(b.wx, b.wy, 0).y - 200, 'ZOOM 成功! +' + gained, '#c792ea', 'sparkle');
+      Sound.achievement();
+    } else {
+      addFloatText(project(b.wx, b.wy, 0).x, project(b.wx, b.wy, 0).y - 200, 'ZOOM 失败', '#ff6b6b', null);
+      Sound.streakBreak(streak);
+    }
+    if (b) b.zoomFocus = false;
+    zoom = null;
+    updateHUD(); renderPanel(); saveState();
+  }
+  // Zoom 内瓶子筛选(只抛 zoom 瓶; 其他瓶不可选中、手暂停)
+  function zoomActive() { return !!zoom; }
+
+  function updateAutoThrow(dt) {
+    if (!started || zoomActive()) return;   // Zoom 内手暂停
     const iv = perHandInterval();
     if (!isFinite(iv)) return;
     // 每只手独立计时、独立抛瓶: 到点后各自找一个空闲瓶子拍击
@@ -2627,6 +2901,7 @@
     updateAutoThrow(dt);
     updateFloats(dt);
     updateShards(dt);
+    updateEvents(dt, now);
     // 连击超时: 手动成功后倒计时, 超时中断归零(新机制, 需「连击存在时间」科技延长)
     if (streak > 0 && streakExpireAt > 0 && now > streakExpireAt) {
       breakStreak();
@@ -2642,6 +2917,8 @@
     stats: () => ({ caps, streak, best, attempts, panelUnlocked, tech: { ...techLevels }, techPoints, spentTechPoints, techPointPrice: techPointPrice(), items: { ...itemsOwned }, lifetime: { ...stats }, achievements: { ...achievements }, milestones: MILESTONES.filter(m => milestoneUnlocked(m.id)).map(m => m.id), maxBottles: currentMaxBottles(), hammerMode, streakWindowMs: streakWindowMs(), streakExpireAt }),
     music: () => ({ enabled: Music.isEnabled(), volume: +Music.getVolume().toFixed(2), playing: Music.isPlaying(), tempoTargetMs: Math.max(CONFIG.musicStreak.minStepMs, CONFIG.musicStreak.baseStepMs - streak * CONFIG.musicStreak.stepPerStreak), tempoCurrentMs: +Music.getTempo().toFixed(1), layers: { bass: streak >= CONFIG.musicStreak.bassAt, harmony: streak >= CONFIG.musicStreak.harmonyAt, hat: streak >= CONFIG.musicStreak.hatAt } }),
     hands: () => hands.map(h => ({ state: h.state, acc: +h.acc.toFixed(0), target: h.target ? h.target.type : null })),
+    drops: () => drops.map(d => ({ kind: d.kind, state: d.state, amount: d.amount, itemId: d.itemId })),
+    spawnDrop: () => spawnDrop(),
     ranges: () => ({ ...effectiveRanges(), pointer: +chargePointer(chargePhase).toFixed(3), charging: !!charging, perHandInterval: perHandInterval() }),
     panel: { unlock: unlockPanel, unlockTech, buyItem },
     setStreak: (n) => { streak = Math.max(0, n | 0); updateHUD(); },   // 调试: 设置连击(验证音乐节奏挂钩)

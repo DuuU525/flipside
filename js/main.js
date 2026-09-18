@@ -986,15 +986,14 @@
     return ctm ? pt.matrixTransform(ctm.inverse()) : { x: clientX, y: clientY };
   }
 
-  // 全屏科技树 SVG 渲染(放射状节点图: 根节点居中, 其余科技向四周发散)
+  // 全屏科技树 SVG 渲染(沙漏形双方向: A 倒立瓶向上 / B 正立瓶向下 / 根在瓶口对接 / 基建在腰部左侧)
   // 只展示前置已满足的节点: 前置未解锁的科技不显示, 随解锁逐层揭示
   function renderTech() {
     const W = 1000, H = 1000;
-    const cx = W / 2, cy = H / 2;
-    // 横向分层布局: X = 深度(根在最左, 向右展开), Y = 分支内叶子槽位(三大分支自然上下分组)
-    const originX = 70;       // 根节点中心 X(最左)
-    const layerGapX = 132;    // 每层 X 间距(向右)
-    const rowGapY = 78;       // 相邻叶子 Y 间距(向下)
+    // 沙漏布局参数
+    const SCX = 660, SCY = 500;               // 沙漏中心(根节点位置)
+    const gapY = 90;                           // 每层纵向间距
+    const mouthHalf = 40, bottomHalf = 240;    // 瓶口/瓶底半宽(倒立瓶上宽下窄)
 
     // 可见节点: 根节点始终可见; 其余只保留前置已满足(非 locked)的节点
     const visibleNodes = [TECH_ROOT, ...TECH_TREE].filter(n => techNodeState(n) !== 'locked');
@@ -1009,34 +1008,55 @@
       (children[pid] = children[pid] || []).push(n);
     });
 
-    // 深度(X 坐标来源): 根=0, 逐层 +1
+    // 深度(相对根): 根=0, 逐层 +1
     const depth = { [TECH_ROOT.id]: 0 };
     (function calcDepth(id, d) {
       for (const k of (children[id] || [])) { depth[k.id] = d + 1; calcDepth(k.id, d + 1); }
     })(TECH_ROOT.id, 0);
 
-    // 叶子按 DFS 序分配 Y 槽位, 内部节点 Y = 子节点 Y 均值(tidy tree)
-    // 三大分支的子树在 Y 上自然分块: 瓶子在上、成功率在中、手在下
-    const ySlot = {};
-    let leafCount = 0;
-    (function assignY(node) {
-      const kids = children[node.id] || [];
-      if (!kids.length) { ySlot[node.id] = leafCount++; return; }
-      let s = 0;
-      for (const k of kids) { assignY(k); s += ySlot[k.id]; }
-      ySlot[node.id] = s / kids.length;
-    })(TECH_ROOT);
-
-    // 世界坐标位置: X 随深度向右, Y 让全部叶子围绕 cy 垂直居中
+    // 沙漏坐标: 按 side 分组, 每层节点均匀分布在瓶形半宽内
     const pos = {};
-    allNodes.forEach(n => {
-      pos[n.id] = {
-        x: originX + depth[n.id] * layerGapX,
-        y: cy + (ySlot[n.id] - (leafCount - 1) / 2) * rowGapY,
-      };
-    });
+    pos[TECH_ROOT.id] = { x: SCX, y: SCY };
+    const sideGroups = { infra: [], A: [], B: [] };
+    allNodes.forEach(n => { if (!n.isRoot) sideGroups[n.side || 'infra'].push(n); });
+    function layerOf(side, d) {
+      return sideGroups[side].filter(n => depth[n.id] === d);
+    }
+    const maxD = {};
+    ['infra', 'A', 'B'].forEach(s => { maxD[s] = Math.max(...sideGroups[s].map(n => depth[n.id])); });
+
+    // 方向 A(倒立瓶): 向上, 深度越深越靠上、瓶身越宽(瓶底在上)
+    for (const n of sideGroups.A) {
+      const d = depth[n.id];
+      const half = mouthHalf + (d - 1) / (maxD.A - 1) * (bottomHalf - mouthHalf);
+      const layer = layerOf('A', d);
+      const idx = layer.indexOf(n);
+      const x = layer.length === 1 ? SCX : SCX - half + (2 * half) * idx / (layer.length - 1);
+      pos[n.id] = { x, y: SCY - d * gapY };
+    }
+    // 方向 B(正立瓶): 向下, 深度越深越靠下、瓶身越宽(瓶底在下)
+    for (const n of sideGroups.B) {
+      const d = depth[n.id];
+      const half = mouthHalf + (d - 1) / (maxD.B - 1) * (bottomHalf - mouthHalf);
+      const layer = layerOf('B', d);
+      const idx = layer.indexOf(n);
+      const x = layer.length === 1 ? SCX : SCX - half + (2 * half) * idx / (layer.length - 1);
+      pos[n.id] = { x, y: SCY + d * gapY };
+    }
+    // 基建(腰部左侧): 横向分层, X 随深度向右, Y 层内居中分散
+    for (const n of sideGroups.infra) {
+      const d = depth[n.id];
+      const layer = layerOf('infra', d);
+      const idx = layer.indexOf(n);
+      const x = 100 + (d - 1) * 72;
+      const y = SCY - (layer.length - 1) * 45 + idx * 90;
+      pos[n.id] = { x, y };
+    }
 
     let html = '';
+    // 瓶形轮廓虚线(勾勒倒立瓶 A / 正立瓶 B, 强化方向隐喻)
+    html += `<path class="t-bottle" d="M ${SCX - bottomHalf} ${SCY - maxD.A * gapY} L ${SCX + bottomHalf} ${SCY - maxD.A * gapY} L ${SCX + mouthHalf} ${SCY - gapY * 0.6} L ${SCX - mouthHalf} ${SCY - gapY * 0.6} Z"/>`;
+    html += `<path class="t-bottle" d="M ${SCX - mouthHalf} ${SCY + gapY * 0.6} L ${SCX + mouthHalf} ${SCY + gapY * 0.6} L ${SCX + bottomHalf} ${SCY + maxD.B * gapY} L ${SCX - bottomHalf} ${SCY + maxD.B * gapY} Z"/>`;
     // 连线: 从父节点边缘指向子节点边缘的径向直线(子节点可见时父节点必然可见)
     for (const node of visibleNodes) {
       if (node.isRoot) continue;

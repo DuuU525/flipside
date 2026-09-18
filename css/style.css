@@ -931,6 +931,9 @@ kbd {
 #techSvg .t-link.blocked { stroke: rgba(255, 255, 255, 0.08); }
 @keyframes t-dash { to { stroke-dashoffset: -24; } }
 
+/* 沙漏瓶形轮廓虚线(倒立瓶 A / 正立瓶 B) */
+#techSvg .t-bottle { fill: none; stroke: rgba(255, 255, 255, 0.14); stroke-width: 1.5; stroke-dasharray: 8 6; pointer-events: none; }
+
 #techSvg .t-lv-badge { fill: rgba(76, 201, 240, 0.16); stroke: var(--accent); stroke-width: 1; }
 #techSvg .t-lv-text { fill: var(--accent); font-size: 10px; font-weight: 700; text-anchor: middle; dominant-baseline: central; }
 

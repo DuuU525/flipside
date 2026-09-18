@@ -87,6 +87,20 @@
     handHitT: 0.5,           // 拍击动画中触发抛瓶的时刻(0~1)
     handReach: 62,           // 手向前伸出的距离(世界单位)
 
+    // 方向 A 新节点效果(阶段三)
+    pointerSlowMult: 0.85,   // 指针减速: 蓄力指针速度 ×0.85(更易命中)
+    perfectHalf: 0.02,       // 完美判定: 直立区间中心的窄「完美区」半宽
+    perfectMult: 1.5,        // 完美判定: 完美区命中奖励 ×1.5
+    goldenLuckBonus: 0.005,  // 金色概率+: 金色瞬间基础触发概率 +0.5%(每点? 一次性)
+
+    // 方向 B 新节点效果(阶段三)
+    offlineCapHours: 8,      // 离线收益: 累计上限(小时)
+    offlineRate: 0.5,        // 离线收益: 折减系数(50%)
+    handStreakCap: 3,        // 挂机连击: 手命中也累计连击的上限
+    handGoldenChance: 0.005, // 手幸运: 手触发金色瞬间概率(0.5%)
+    handSyncMult: 0.8,       // 手速共享: 手总间隔 ×0.8(协同加速)
+    harvestSlots: 3,         // 自动收获: 收获格子数量
+
     debug: false,         // 调试: 显示瓶子索引与状态
 
     // 功能界面
@@ -168,35 +182,53 @@
   }
 
   // 科技树(解锁道具购买权 / 强化手 / 强化手动蓄力)
-  // 结构: 第0层=解锁科技树功能(TECH_ROOT, 数组外); 第1层=三大分支入口; 各分支下按维度展开
-  // 模型A: 节点花「科技点」(points 占点数)一次性解锁=直接满级效果(maxLevel 仅用于计算满级效果值, 不再逐级升级)
+  // 结构: 沙漏形双方向 — 方向 A 倒立瓶(手动, 向上) / 方向 B 正立瓶(挂机, 向下) / 基建环绕腰部
+  // 模型A: 节点花「科技点」(points 占点数)一次性解锁=直接满级效果(maxLevel 仅用于计算满级效果值)
   // side: 'infra'=中立基建(两方向共享) / 'A'=手动技巧方向 / 'B'=自动挂机方向
+  // 对称: A满=35点(基础10+进阶25) = B满=35点; 基建15点; 60=基建15+满35+另一方向基础10
   const TECH_TREE = [
-    // 中立基建: 瓶子分支(数量/类型/上限/锤子/冷却)
+    // ============ 中立基建 15 点(环绕腰部) ============
     { id: 'branchBottle', name: '瓶子分支',   icon: 'bottle', points: 1, side: 'infra', prereq: null, desc: '开启瓶子分支',   detail: '开启瓶子分支：瓶子类型（黄金/翡翠）、对应锤子、桌面瓶子数量与上限。' },
     { id: 'expand',       name: '玻璃瓶',     icon: 'bottle', points: 2, side: 'infra', prereq: 'branchBottle', unlockItem: 'extraBottle', maxLevel: 5, desc: '玻璃瓶可购上限 20', detail: '解锁道具「玻璃瓶」购买权，可购上限 20 个。' },
-    { id: 'special',      name: '黄金瓶',     icon: 'bottleGold', points: 3, side: 'infra', prereq: 'expand',      unlockItem: 'specialBottle', maxLevel: 10, desc: '黄金瓶可购上限 20', detail: '解锁道具「黄金瓶」购买权（命中 ×2.5），可购上限 20 个。' },
-    { id: 'expandCap',    name: '扩容工程',   icon: 'box', points: 2, side: 'infra', prereq: 'branchBottle', maxLevel: 6, desc: '桌面瓶子上限 +12', detail: '桌面瓶子数量上限 +12（共 20 个）。注意：只提上限，不送瓶子。' },
-    { id: 'jadeCraft',    name: '翡翠瓶',     icon: 'bottleJade', points: 3, side: 'infra', prereq: 'special',      unlockItem: 'jadeBottle', maxLevel: 10, desc: '翡翠瓶可购上限 20', detail: '解锁道具「翡翠瓶」购买权（命中 ×5），可购上限 20 个。' },
-    { id: 'hammerGlass',  name: '玻璃锤',     icon: 'hammer', points: 1, side: 'infra', prereq: 'expand',    maxLevel: 5, desc: '解锁玻璃锤 · 返还 96%', detail: '解锁道具页签的「玻璃锤」购买权，可敲碎玻璃瓶腾出空间，返还满级 96%。' },
+    { id: 'special',      name: '黄金瓶',     icon: 'bottleGold', points: 2, side: 'infra', prereq: 'expand',      unlockItem: 'specialBottle', maxLevel: 10, desc: '黄金瓶可购上限 20', detail: '解锁道具「黄金瓶」购买权（命中 ×2.5），可购上限 20 个。' },
+    { id: 'expandCap',    name: '扩容工程',   icon: 'box', points: 2, side: 'infra', prereq: 'branchBottle', maxLevel: 6, desc: '桌面瓶子上限 +12', detail: '桌面瓶子数量上限 +12（共 20 个）。' },
+    { id: 'jadeCraft',    name: '翡翠瓶',     icon: 'bottleJade', points: 2, side: 'infra', prereq: 'special',      unlockItem: 'jadeBottle', maxLevel: 10, desc: '翡翠瓶可购上限 20', detail: '解锁道具「翡翠瓶」购买权（命中 ×5），可购上限 20 个。' },
+    { id: 'hammerGlass',  name: '玻璃锤',     icon: 'hammer', points: 1, side: 'infra', prereq: 'expand',    maxLevel: 5, desc: '解锁玻璃锤 · 返还 96%', detail: '解锁道具页签的「玻璃锤」购买权，返还满级 96%。' },
     { id: 'hammerGold',   name: '黄金锤',     icon: 'hammer', points: 1, side: 'infra', prereq: 'special',   maxLevel: 5, desc: '解锁黄金锤 · 返还 96%', detail: '解锁道具页签的「黄金锤」购买权，返还满级 96%。' },
     { id: 'hammerJade',   name: '翡翠锤',     icon: 'hammer', points: 1, side: 'infra', prereq: 'jadeCraft', maxLevel: 5, desc: '解锁翡翠锤 · 返还 96%', detail: '解锁道具页签的「翡翠锤」购买权，返还满级 96%。' },
     { id: 'cdGlass',      name: '玻璃冷却',   icon: 'snow', points: 1, side: 'infra', prereq: 'expand',      maxLevel: 5, desc: '玻璃瓶冷却 -0.5s', detail: '玻璃瓶抛后冷却时间 -0.5 秒（2.0→1.5 秒）。' },
     { id: 'cdGold',       name: '黄金冷却',   icon: 'snow', points: 1, side: 'infra', prereq: 'special',     maxLevel: 5, desc: '黄金瓶冷却 -0.5s', detail: '黄金瓶抛后冷却时间 -0.5 秒。' },
     { id: 'cdJade',       name: '翡翠冷却',   icon: 'snow', points: 1, side: 'infra', prereq: 'jadeCraft',   maxLevel: 5, desc: '翡翠瓶冷却 -0.5s', detail: '翡翠瓶抛后冷却时间 -0.5 秒。' },
-    // 方向 A(手动技巧): 成功率分支(直立率/倒立率/连击)
+
+    // ============ 方向 A(倒立瓶 · 手动技巧) 35 点 = 基础10 + 进阶25 ============
+    // 基础(4节点, 10点): 入口 + 稳定 + 平衡 + 连击入口
     { id: 'branchLuck',   name: '成功率分支', icon: 'target', points: 1, side: 'A', prereq: null, desc: '开启成功率分支', detail: '开启成功率分支：提升直立率与倒立率，让抛瓶更准、连击收益更高。' },
-    { id: 'stability',    name: '稳定科技',   icon: 'rock', points: 2, side: 'A', prereq: 'branchLuck',   desc: '直立区间扩宽', detail: '直立区间半宽 +0.06，蓄力时更容易命中直立。' },
-    { id: 'balance',      name: '平衡科技',   icon: 'scales', points: 2, side: 'A', prereq: 'stability',    desc: '倒立区间扩宽', detail: '倒立区间半宽 +0.04，蓄力时更容易命中倒立。' },
-    { id: 'godhand',      name: '神之一手',   icon: 'crown', points: 3, side: 'A', prereq: 'balance',      maxLevel: 3, desc: '倒立几率大幅提升', detail: '倒立区间半宽 +0.12，大幅提升倒立几率。' },
-    { id: 'streak',       name: '连击科技',   icon: 'fire', points: 1, side: 'A', prereq: 'balance',      desc: '开启连击强化', detail: '开启连击强化分支，解锁「连击奖励」与「连击存在时间」两项科技。' },
-    { id: 'streakReward', name: '连击奖励',   icon: 'coin', points: 3, side: 'A', prereq: 'streak',       maxLevel: 3, desc: '连击加成 +3', detail: '连击加成 +3 瓶盖，连击越高每次奖励越多。' },
-    { id: 'streakWindow', name: '连击存在时间', icon: 'bolt', points: 2, side: 'A', prereq: 'streak',     maxLevel: 3, desc: '连击时间 +6 秒', detail: '连击存在时间 +6 秒（基础 4 秒 → 10 秒），给玩家更充足的时间保持连击。' },
-    // 方向 B(自动挂机): 手分支(个数/冷却时间/命中率)
+    { id: 'stability',    name: '稳定科技',   icon: 'rock', points: 3, side: 'A', prereq: 'branchLuck',   desc: '直立区间扩宽', detail: '直立区间半宽 +0.06，蓄力时更容易命中直立。' },
+    { id: 'balance',      name: '平衡科技',   icon: 'scales', points: 3, side: 'A', prereq: 'branchLuck',    desc: '倒立区间扩宽', detail: '倒立区间半宽 +0.04，蓄力时更容易命中倒立。' },
+    { id: 'streak',       name: '连击科技',   icon: 'fire', points: 3, side: 'A', prereq: 'branchLuck',      desc: '开启连击强化', detail: '开启连击强化分支，解锁「连击奖励」与「连击存在时间」。' },
+    // 进阶(7节点, 25点)
+    { id: 'godhand',      name: '神之一手',   icon: 'crown', points: 4, side: 'A', prereq: 'balance',      maxLevel: 3, desc: '倒立几率大幅提升', detail: '倒立区间半宽 +0.12，大幅提升倒立几率。' },
+    { id: 'streakReward', name: '连击奖励',   icon: 'coin', points: 4, side: 'A', prereq: 'streak',       maxLevel: 3, desc: '连击加成 +3', detail: '连击加成 +3 瓶盖，连击越高每次奖励越多。' },
+    { id: 'streakWindow', name: '连击存在时间', icon: 'bolt', points: 3, side: 'A', prereq: 'streak',     maxLevel: 3, desc: '连击时间 +6 秒', detail: '连击存在时间 +6 秒（4→10 秒），更充足的时间保持连击。' },
+    { id: 'pointerSlow',  name: '指针减速',   icon: 'target', points: 3, side: 'A', prereq: 'stability',   desc: '指针速度 -15%', detail: '蓄力指针速度 ×0.85，更慢更好瞄准，技巧有纵深。' },
+    { id: 'perfect',      name: '完美判定',   icon: 'star', points: 4, side: 'A', prereq: 'godhand',      desc: '完美区命中 ×1.5', detail: '直立区间中心分窄「完美区」（±0.02），命中奖励 ×1.5，给高手更高天花板。' },
+    { id: 'goldenLuck',   name: '金色概率+',  icon: 'sparkle', points: 3, side: 'A', prereq: 'streakReward', desc: '金色瞬间几率 +0.5%', detail: '金色瞬间基础触发概率 +0.5%，手动专属惊喜。' },
+    { id: 'invertedMaster', name: '倒立宗师', icon: 'crown', points: 4, side: 'A', prereq: 'perfect',     desc: '解锁 Zoom 专注领域', detail: '解锁「Zoom 专注领域」：连击≥20 时几率进入，只抛一个瓶子挑战极限，成功高额奖励。', final: true },
+
+    // ============ 方向 B(正立瓶 · 自动挂机) 35 点 = 基础10 + 进阶25 ============
+    // 基础(4节点, 10点): 入口 + 解锁手 + 手频率 + 手几率
     { id: 'branchHand',   name: '手分支',     icon: 'hand', points: 1, side: 'B', prereq: null, desc: '开启手分支',     detail: '开启手分支：手的个数（购买权）、冷却时间与命中率。' },
-    { id: 'unlockHand',   name: '解锁手',     icon: 'glove', points: 2, side: 'B', prereq: 'branchHand',   unlockItem: 'hand', desc: '解锁道具「手」', detail: '解锁道具页签的「手」购买权，手会自动抛空闲瓶子，无需手动操作。' },
-    { id: 'handFreq',     name: '提高手的频率', icon: 'rocket', points: 2, side: 'B', prereq: 'unlockHand', maxLevel: 5, desc: '手抛瓶间隔缩短', detail: '手抛瓶间隔缩短 2500ms。手越多、间隔越短，挂机收益越高。' },
-    { id: 'handLuck',     name: '提高手的几率', icon: 'dice', points: 2, side: 'B', prereq: 'unlockHand', maxLevel: 5, desc: '手抛瓶命中率提升', detail: '手抛瓶的直立/倒立区间各 +0.15，手更“准”。' },
+    { id: 'unlockHand',   name: '解锁手',     icon: 'glove', points: 3, side: 'B', prereq: 'branchHand',   unlockItem: 'hand', desc: '解锁道具「手」', detail: '解锁道具页签的「手」购买权，手会自动抛空闲瓶子。' },
+    { id: 'handFreq',     name: '提高手的频率', icon: 'rocket', points: 3, side: 'B', prereq: 'branchHand', maxLevel: 5, desc: '手抛瓶间隔缩短', detail: '手抛瓶间隔缩短 2500ms。挂机收益越高。' },
+    { id: 'handLuck',     name: '提高手的几率', icon: 'dice', points: 3, side: 'B', prereq: 'branchHand', maxLevel: 5, desc: '手抛瓶命中率提升', detail: '手抛瓶的直立/倒立区间各 +0.15，手更“准”。' },
+    // 进阶(7节点, 25点)
+    { id: 'handStreak',   name: '挂机连击',   icon: 'fire', points: 4, side: 'B', prereq: 'unlockHand',  desc: '手命中也累计连击', detail: '手命中也积累少量连击（上限 +3），打破「挂机不吃连击」但低于手动。' },
+    { id: 'handGolden',   name: '手幸运',     icon: 'sparkle', points: 3, side: 'B', prereq: 'handFreq',   desc: '手小概率金色瞬间', detail: '手抛瓶 0.5% 概率触发金色瞬间，挂机也有「回来收惊喜」期待。' },
+    { id: 'handSync',     name: '手速共享',   icon: 'rocket', points: 3, side: 'B', prereq: 'handLuck',   desc: '手总间隔 -20%', detail: '手协同加速，总抛瓶间隔 ×0.8。' },
+    { id: 'offline',      name: '离线收益',   icon: 'clock', points: 4, side: 'B', prereq: 'handStreak', desc: '关页也产出(上限8h)', detail: '关页后按挂机配置产出（上限 8 小时，折减 50%），回来领取。' },
+    { id: 'autoHarvest',  name: '自动收获',   icon: 'box', points: 4, side: 'B', prereq: 'handGolden',  desc: '自动收过期掉落+格子', detail: '桌面事件掉落物：格子满了进过期，本节点自动收取过期掉落，并 +3 收获格子。' },
+    { id: 'handReport',   name: '挂机报告',   icon: 'clipboard', points: 3, side: 'B', prereq: 'handSync',   desc: '回来弹挂机总结', detail: '回来时弹出本次挂机产出总结（时长/瓶盖/亮点），让挂机「有期待」。' },
+    { id: 'autoFactory',  name: '自动化工厂', icon: 'gear', points: 4, side: 'B', prereq: 'autoHarvest', desc: '解锁桌面奇妙事件', detail: '解锁「桌面奇妙事件」：挂机产出时几率掉落奖励，丰富挂机趣味。', final: true },
   ];
 
   // 科技树第0层根节点: 解锁科技树功能本身(对应「解锁功能界面」)

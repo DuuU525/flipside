@@ -376,6 +376,7 @@
       fxGhost: 0,                              // 残影密度(0=无残影)
       ghostLast: 0,                            // 残影采样时间戳
       golden: false,                           // 金色瞬间(稀有彩蛋, 奖励×10 + 金色视觉)
+      perfectHit: false,                       // 完美判定(直立命中完美区, 奖励 ×1.5)
       targetAngle: 0,                          // 落地朝向(只随机一次, 避免落地瞬间重抽)
       t0: 0,
       resultState: 'lying',
@@ -478,9 +479,10 @@
     return 'lying';
   }
 
-  // 金色瞬间触发概率: 基础 + 连击加成, 封顶(彩蛋越连击越容易遇到, 但保持稀有)
+  // 金色瞬间触发概率: 基础 + 连击加成 + 金色概率+科技, 封顶(彩蛋越连击越容易遇到, 但保持稀有)
   function goldenChance() {
-    return Math.min(CONFIG.golden.maxChance, CONFIG.golden.baseChance + streak * CONFIG.golden.perStreak);
+    const luck = techLevel('goldenLuck') > 0 ? CONFIG.goldenLuckBonus : 0;
+    return Math.min(CONFIG.golden.maxChance, CONFIG.golden.baseChance + streak * CONFIG.golden.perStreak + luck);
   }
 
   // ============================ 朝向角度语义 ============================
@@ -654,6 +656,11 @@
     b.spinDir = Math.random() < 0.5 ? 1 : -1;                 // 随机正转/反转
     b.startRot = b.rot;
     b.resultState = forcedState || rollState();              // 结果状态(蓄力判定 或 随机)
+    // 手幸运(挂机金色瞬间): 手抛瓶小概率触发金色瞬间, 强制倒立
+    if (b.source === 'hand' && !b.golden && techLevel('handGolden') > 0 && Math.random() < CONFIG.handGoldenChance) {
+      b.golden = true;
+      b.resultState = 'inverted';
+    }
     if (milestoneUnlocked('ms_lucky') && Math.random() < CONFIG.milestone.luckyChance) {
       b.resultState = upgradeState(b.resultState);             // 幸运瓶: 结果升一档
     }
@@ -686,21 +693,24 @@
     const achMult = 1 + achievementCount() * CONFIG.achievementRewardPerAch;  // 成就全局收益加成
     const goldMult = milestoneUnlocked('ms_gold') ? 1 + CONFIG.milestone.goldCapsMult : 1;  // 黄金瓶盖
     if (b.state === 'upright') {
-      if (!isHand) { streak += 1; streakExpireAt = performance.now() + streakWindowMs(); if (streak >= 2) triggerCombo(streak); }  // 挂机不累计连击
-      const streakTerm = isHand ? 0 : (streak - 1) * bonus;  // 挂机不吃连击, 连击项恒为0(否则 streak-1 会变 -1 导致归零)
+      if (!isHand) { streak += 1; streakExpireAt = performance.now() + streakWindowMs(); if (streak >= 2) triggerCombo(streak); }
+      else if (techLevel('handStreak') > 0) { streak = Math.min(CONFIG.handStreakCap, streak + 1); streakExpireAt = performance.now() + streakWindowMs(); }  // 挂机连击科技: 手命中也累计(上限)
+      const streakTerm = (isHand && techLevel('handStreak') <= 0) ? 0 : (streak - 1) * bonus;  // 挂机无连击科技不吃连击; 有挂机连击则吃(但手收益本身打折)
       gained = Math.round((CONFIG.scoreBottom + streakTerm) * baseMult * achMult * goldMult * sourceMult);
+      if (b.perfectHit) gained = Math.round(gained * CONFIG.perfectMult);   // 完美判定 ×1.5
       caps += gained;
       stats.earned += gained;
       if (special) stats.specialHits++;
       text = '+' + gained;                 // 纯数字飘字(去状态词)
-      color = '#52e07c';                   // 直立=绿
-      icon = null;                         // 直立无图标
+      color = b.perfectHit ? '#4cc9f0' : '#52e07c';   // 完美判定=亮蓝, 直立=绿
+      icon = b.perfectHit ? 'star' : null;             // 完美判定加星标
       Sound.success(streak, isHand);   // 连击音高分层 + 挂机衰减
       if (!isHand) Music.duck(80);     // 手动命中音乐闪避(泵吸感)
       if (!isHand) stats.consecutiveLie = 0;   // 命中重置连续平躺计数
     } else if (b.state === 'inverted') {
-      if (!isHand) { streak += 1; streakExpireAt = performance.now() + streakWindowMs(); if (streak >= 2) triggerCombo(streak); }  // 挂机不累计连击
-      const streakTerm = isHand ? 0 : (streak - 1) * bonus;  // 挂机不吃连击, 连击项恒为0
+      if (!isHand) { streak += 1; streakExpireAt = performance.now() + streakWindowMs(); if (streak >= 2) triggerCombo(streak); }
+      else if (techLevel('handStreak') > 0) { streak = Math.min(CONFIG.handStreakCap, streak + 1); streakExpireAt = performance.now() + streakWindowMs(); }  // 挂机连击科技
+      const streakTerm = (isHand && techLevel('handStreak') <= 0) ? 0 : (streak - 1) * bonus;
       gained = Math.round((CONFIG.scoreMouth + streakTerm) * baseMult * achMult * goldMult * sourceMult);
       if (b.golden) {                                       // 金色瞬间: 奖励×10 + 专属视觉/音效
         gained = Math.round(gained * CONFIG.golden.mult);
@@ -860,11 +870,16 @@
     charging = null;
     if (b) b.claimed = false;            // 释放占用(手可重新选择该瓶)
     if (b && !b.flying) {
-      let state = stateFromPointer(chargePointer(chargePhase));
+      const ptr = chargePointer(chargePhase);
+      let state = stateFromPointer(ptr);
       if (state === 'lying') state = rollLyingSave();   // 平躺兜底: 小概率翻正(概率随成功率科技)
+      // 完美判定科技: 直立命中且指针落在完美区(直立中心 ±perfectHalf) → 标记完美命中
+      const perfectHit = techLevel('perfect') > 0 && state === 'upright'
+        && Math.abs(ptr - CONFIG.charge.uprightCenter) <= CONFIG.perfectHalf;
       const golden = Math.random() < goldenChance();     // 金色瞬间: 小概率触发(随连击提升)
       if (golden) state = 'inverted';                    // 触发即强制倒立
       throwBottle(b, state, 'manual', golden);
+      if (perfectHit) b.perfectHit = true;               // 标记完美命中(结算时 ×1.5)
     }
   }
   window.addEventListener('pointerup', releaseCharge);
@@ -1043,21 +1058,34 @@
       const x = layer.length === 1 ? SCX : SCX - half + (2 * half) * idx / (layer.length - 1);
       pos[n.id] = { x, y: SCY + d * gapY };
     }
-    // 基建(环绕腰部两侧): 按深度排序后左右两列对称排布, 深度越深越靠外
-    const infraSorted = [...sideGroups.infra].sort((a, b) => depth[a.id] - depth[b.id] || a.id.localeCompare(b.id));
-    const half = Math.ceil(infraSorted.length / 2);
-    infraSorted.forEach((n, i) => {
-      const isLeft = i < half;
-      const within = isLeft ? i : (i - half);
-      const x = isLeft ? (SCX - 230 - depth[n.id] * 28) : (SCX + 230 + depth[n.id] * 28);
-      const y = SCY - (half - 1) * 32 + within * 64;
-      pos[n.id] = { x, y };
+    // 基建(腰部左侧 tidy-tree: 树根 branchBottle 紧邻瓶口, 向左展开, 保持拓扑、连线不交叉)
+    // 注: 基建是单一树(根 branchBottle), 拆左右两列会导致连线横穿腰部, 故用单侧 tidy-tree + 右侧对称装饰
+    const infraRoot = sideGroups.infra.find(n => !n.prereq) || sideGroups.infra[0];
+    const infraChildren = {};
+    sideGroups.infra.forEach(n => { if (n.prereq) (infraChildren[n.prereq] = infraChildren[n.prereq] || []).push(n); });
+    const infraYSlot = {};
+    let infraLeaf = 0;
+    (function assignInfraY(id) {
+      const kids = infraChildren[id] || [];
+      if (!kids.length) { infraYSlot[id] = infraLeaf++; return; }
+      let s = 0;
+      for (const k of kids) { assignInfraY(k); s += infraYSlot[k]; }
+      infraYSlot[id] = s / kids.length;
+    })(infraRoot.id);
+    sideGroups.infra.forEach(n => {
+      const d = depth[n.id];
+      pos[n.id] = {
+        x: SCX - 185 - (d - 1) * 72,
+        y: SCY + (infraYSlot[n.id] - (infraLeaf - 1) / 2) * 60,
+      };
     });
 
     let html = '';
     // 瓶形轮廓虚线(勾勒倒立瓶 A / 正立瓶 B, 强化方向隐喻)
     html += `<path class="t-bottle" d="M ${SCX - bottomHalf} ${SCY - maxD.A * gapY} L ${SCX + bottomHalf} ${SCY - maxD.A * gapY} L ${SCX + mouthHalf} ${SCY - gapY * 0.6} L ${SCX - mouthHalf} ${SCY - gapY * 0.6} Z"/>`;
     html += `<path class="t-bottle" d="M ${SCX - mouthHalf} ${SCY + gapY * 0.6} L ${SCX + mouthHalf} ${SCY + gapY * 0.6} L ${SCX + bottomHalf} ${SCY + maxD.B * gapY} L ${SCX - bottomHalf} ${SCY + maxD.B * gapY} Z"/>`;
+    // 右侧对称装饰(呼应"环绕", 淡化瓶形; 阶段三 B 方向节点加满后可移除)
+    html += `<path class="t-bottle-dim" d="M ${SCX + 185} ${SCY - 150} L ${SCX + 340} ${SCY - 150} L ${SCX + 340} ${SCY + 150} L ${SCX + 185} ${SCY + 150} Z"/>`;
     // 连线: 从父节点边缘指向子节点边缘的径向直线(子节点可见时父节点必然可见)
     for (const node of visibleNodes) {
       if (node.isRoot) continue;
@@ -2552,7 +2580,9 @@
   // 蓄力指针速度(连击越高越快, 命中越难, 形成风险递增张力)
   function chargeSpeed() {
     const base = CONFIG.charge.speed + streak * CONFIG.charge.speedPerStreak;
-    return milestoneUnlocked('ms_steady') ? base * CONFIG.milestone.steadySpeedMult : base;
+    let v = milestoneUnlocked('ms_steady') ? base * CONFIG.milestone.steadySpeedMult : base;
+    if (techLevel('pointerSlow') > 0) v *= CONFIG.pointerSlowMult;   // 指针减速科技
+    return v;
   }
   function updateCharge(dt) {
     if (!charging) return;
@@ -2567,7 +2597,9 @@
     if (hands <= 0) return Infinity;
     const freqLv = techLevel('handFreq');
     let iv = Math.max(400, CONFIG.autoThrowBase - freqLv * CONFIG.autoThrowStep);
-    return milestoneUnlocked('ms_hands') ? iv * CONFIG.milestone.handsSpeedMult : iv;
+    if (milestoneUnlocked('ms_hands')) iv *= CONFIG.milestone.handsSpeedMult;
+    if (techLevel('handSync') > 0) iv *= CONFIG.handSyncMult;   // 手速共享科技
+    return iv;
   }
   function updateAutoThrow(dt) {
     if (!started) return;

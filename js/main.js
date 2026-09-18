@@ -1043,15 +1043,16 @@
       const x = layer.length === 1 ? SCX : SCX - half + (2 * half) * idx / (layer.length - 1);
       pos[n.id] = { x, y: SCY + d * gapY };
     }
-    // 基建(腰部左侧): 横向分层, X 随深度向右, Y 层内居中分散
-    for (const n of sideGroups.infra) {
-      const d = depth[n.id];
-      const layer = layerOf('infra', d);
-      const idx = layer.indexOf(n);
-      const x = 100 + (d - 1) * 72;
-      const y = SCY - (layer.length - 1) * 45 + idx * 90;
+    // 基建(环绕腰部两侧): 按深度排序后左右两列对称排布, 深度越深越靠外
+    const infraSorted = [...sideGroups.infra].sort((a, b) => depth[a.id] - depth[b.id] || a.id.localeCompare(b.id));
+    const half = Math.ceil(infraSorted.length / 2);
+    infraSorted.forEach((n, i) => {
+      const isLeft = i < half;
+      const within = isLeft ? i : (i - half);
+      const x = isLeft ? (SCX - 230 - depth[n.id] * 28) : (SCX + 230 + depth[n.id] * 28);
+      const y = SCY - (half - 1) * 32 + within * 64;
       pos[n.id] = { x, y };
-    }
+    });
 
     let html = '';
     // 瓶形轮廓虚线(勾勒倒立瓶 A / 正立瓶 B, 强化方向隐喻)

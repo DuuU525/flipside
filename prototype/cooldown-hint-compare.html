@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>冷却提示方案对比 · 原型</title>
+<style>
+  :root { --fg: #e8edf5; --muted: #8fa0b8; --accent: #8fd0ff; --border: rgba(255,255,255,.12); --card: rgba(20,28,42,.6); }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "SimSun", "Courier New", monospace;
+    background: radial-gradient(1200px 700px at 50% 0%, #16233a, #0a1322);
+    color: var(--fg); min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; padding: 26px 16px; -webkit-font-smoothing: none;
+  }
+  h1 { font-size: 19px; letter-spacing: 2px; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: 12px; margin-bottom: 16px; text-align: center; line-height: 1.7; }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  .cell {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  }
+  .cell canvas { background: linear-gradient(#1f3d63, #0c1e38); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+  .cell .name { font-size: 15px; font-weight: 700; color: #8fd0ff; letter-spacing: 1px; }
+  .cell .desc { font-size: 11px; color: var(--muted); text-align: center; line-height: 1.6; }
+  .legend { margin-top: 16px; color: var(--muted); font-size: 12px; line-height: 2; text-align: center; }
+  .legend b { font-weight: 700; color: #8fd0ff; }
+</style>
+</head>
+<body>
+  <h1>冷却提示方案对比 · 原型</h1>
+  <div class="sub">每个格子里是一个「冷却中」的冻瓶（灰白 + 冰锥），<b>点击瓶子</b>触发拒意反馈<br>对比去掉「冷却中…」文字后的替代方案</div>
+  <div class="grid">
+    <div class="cell">
+      <div class="name">方案 A · 冰锥抖动</div>
+      <canvas id="ca" width="300" height="260"></canvas>
+      <div class="desc">点击 → 冰锥水平微震 200ms + 短促"咔"拒意音</div>
+    </div>
+    <div class="cell">
+      <div class="name">方案 B · 冰霜裂纹闪光</div>
+      <canvas id="cb" width="300" height="260"></canvas>
+      <div class="desc">点击 → 冰霜表面闪白色裂纹描边 150ms</div>
+    </div>
+    <div class="cell">
+      <div class="name">方案 C · 冷却进度环</div>
+      <canvas id="cc" width="300" height="260"></canvas>
+      <div class="desc">常驻：瓶底环形进度随剩余时间收缩（点击可重置）</div>
+    </div>
+    <div class="cell">
+      <div class="name">方案 D · 冰冻加深</div>
+      <canvas id="cd" width="300" height="260"></canvas>
+      <div class="desc">点击 → 瓶身冰霜短暂加深 alpha 0.4→0.6 250ms</div>
+    </div>
+  </div>
+  <div class="legend">
+    统一前提：冷却瓶已有 <b>灰白去饱和 + 冰锥底座 + 冰霜覆瓶</b> 的强视觉，这些方案只负责「点击时的拒意反馈」
+  </div>
+
+<script>
+(() => {
+  'use strict';
+  const cvs = { a: document.getElementById('ca'), b: document.getElementById('cb'), c: document.getElementById('cc'), d: document.getElementById('cd') };
+  const ctxs = {};
+  for (const k in cvs) ctxs[k] = cvs[k].getContext('2d');
+
+  // 状态
+  const S = {
+    a: { shakeT: 0 },               // 冰锥抖动触发时间
+    b: { crackT: 0 },               // 裂纹闪光触发时间
+    c: { coolUntil: performance.now() + 3000 },  // 进度环剩余时间
+    d: { deepenT: 0 },              // 冰冻加深触发时间
+  };
+
+  // ---- 音效 ----
+  let actx = null;
+  function ensure() {
+    if (!actx) { try { actx = new (window.AudioContext||window.webkitAudioContext)(); } catch(e){} }
+    if (actx && actx.state === 'suspended') actx.resume();
+    return actx;
+  }
+  function rejectSound() {  // 短促"咔"拒意音(低音短促)
+    const c = ensure(); if (!c) return;
+    const t = c.currentTime;
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = 'square'; o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(80, t + 0.08);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.10, t + 0.008); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+    o.connect(g); g.connect(c.destination);
+    o.start(t); o.stop(t + 0.15);
+  }
+
+  // ---- 瓶子绘制(冷却灰白态 + 冰锥) ----
+  function drawBottle(c, w, h, opts) {
+    const cx = w/2, footY = h - 40;
+    const s = 0.75, bw = 18*s, tw = 7*s, hh = 60*s;
+    // 冰锥(带抖动/进度)
+    let spikeDx = 0;
+    if (opts.shake) {  // 方案A抖动
+      const t = (performance.now() - opts.shake) / 200;
+      if (t < 1) spikeDx = Math.sin(t * Math.PI * 14) * (1 - t) * 4;
+    }
+    c.save();
+    c.globalAlpha = 0.6;
+    c.fillStyle = '#bfe3ff';
+    const spikes = 5;
+    for (let i = 0; i < spikes; i++) {
+      const sx = cx + spikeDx + (i - (spikes-1)/2) * 13 * s;
+      const hh2 = 28 * s * (1 - Math.abs(i-(spikes-1)/2)/(spikes/2)*0.4);
+      c.beginPath();
+      c.moveTo(sx-5, footY+2); c.lineTo(sx, footY+2-hh2); c.lineTo(sx+5, footY+2); c.closePath(); c.fill();
+    }
+    c.restore();
+
+    // 瓶身(灰白去饱和)
+    const lift = hh;
+    c.save();
+    c.translate(cx, footY - lift);
+    c.scale(s, s);
+    // 冰霜加深(方案D)
+    let frostA = 0.42;
+    if (opts.deepen) {
+      const t = (performance.now() - opts.deepen) / 250;
+      if (t < 1) frostA = 0.42 + 0.22 * Math.sin(t * Math.PI);
+    }
+    c.fillStyle = 'rgba(230,240,250,' + frostA + ')';
+    c.strokeStyle = 'rgba(255,255,255,0.5)';
+    c.lineWidth = 2.5;
+    c.beginPath();
+    c.moveTo(-bw, hh); c.lineTo(bw, hh); c.lineTo(bw, -28); c.lineTo(tw, -28); c.lineTo(tw, -hh); c.lineTo(-tw, -hh); c.lineTo(-tw, -28); c.lineTo(-bw, -28); c.closePath();
+    c.fill(); c.stroke();
+
+    // 冰霜裂纹(方案B): 从瓶口向下的折线
+    if (opts.crack) {
+      const t = (performance.now() - opts.crack) / 150;
+      if (t < 1) {
+        const a = (1 - t) * 0.9;
+        c.strokeStyle = 'rgba(255,255,255,' + a.toFixed(3) + ')';
+        c.lineWidth = 1.5;
+        c.beginPath();
+        c.moveTo(0, -hh); c.lineTo(3, -hh*0.6); c.lineTo(-2, -hh*0.3); c.lineTo(4, 0); c.lineTo(0, hh*0.4);
+        c.stroke();
+      }
+    }
+    c.restore();
+
+    // 瓶底冷却进度环(方案C): 常驻
+    if (opts.ring) {
+      const remain = Math.max(0, (opts.ring.coolUntil - performance.now()) / opts.ring.total);
+      if (remain > 0) {
+        c.save();
+        c.strokeStyle = 'rgba(143,208,255,0.35)';
+        c.lineWidth = 3;
+        c.beginPath(); c.arc(cx, footY+6, 22, 0, Math.PI*2); c.stroke();
+        c.strokeStyle = '#8fd0ff';
+        c.beginPath(); c.arc(cx, footY+6, 22, -Math.PI/2, -Math.PI/2 + remain*Math.PI*2); c.stroke();
+        c.restore();
+      }
+    }
+  }
+
+  function loop(now) {
+    const opts = {
+      a: { shake: S.a.shakeT },
+      b: { crack: S.b.crackT },
+      c: { ring: { coolUntil: S.c.coolUntil, total: 3000 } },
+      d: { deepen: S.d.deepenT },
+    };
+    for (const k in ctxs) {
+      const c = ctxs[k], cv = cvs[k];
+      c.clearRect(0, 0, cv.width, cv.height);
+      drawBottle(c, cv.width, cv.height, opts[k]);
+    }
+    // 方案C进度环走完自动重置(循环演示)
+    if (performance.now() > S.c.coolUntil) S.c.coolUntil = performance.now() + 3000;
+    requestAnimationFrame(loop);
+  }
+
+  // ---- 点击触发 ----
+  cvs.a.addEventListener('click', () => { S.a.shakeT = performance.now(); rejectSound(); });
+  cvs.b.addEventListener('click', () => { S.b.crackT = performance.now(); rejectSound(); });
+  cvs.c.addEventListener('click', () => { S.c.coolUntil = performance.now() + 3000; });  // 点击重置进度环
+  cvs.d.addEventListener('click', () => { S.d.deepenT = performance.now(); rejectSound(); });
+
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

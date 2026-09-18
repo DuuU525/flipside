@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>沙漏科技树 · 原型</title>
+<style>
+  :root { --fg:#e8edf5; --muted:#8fa0b8; --border:rgba(255,255,255,.12); --card:rgba(20,28,42,.6); }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family:"SimSun","Courier New",monospace; background:radial-gradient(1200px 800px at 50% 0%,#16233a,#0a1322);
+    color:var(--fg); min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:20px 12px; -webkit-font-smoothing:none;
+  }
+  h1 { font-size:18px; letter-spacing:2px; margin-bottom:2px; }
+  .sub { color:var(--muted); font-size:12px; margin-bottom:12px; text-align:center; line-height:1.6; }
+  #bar { display:flex; gap:14px; align-items:center; margin-bottom:8px; font-size:13px; flex-wrap:wrap; justify-content:center; }
+  #bar .seg { padding:4px 12px; border:1px solid var(--border); border-radius:6px; background:var(--card); }
+  #bar b { font-size:15px; }
+  #bar .budget b { color:#ffd166; }
+  #bar .infra b { color:#8fa0b8; }
+  #bar .a b { color:#7ec8ff; }
+  #bar .b b { color:#6ee7a0; }
+  #warn { color:#ff6b6b; font-size:12px; margin-bottom:6px; min-height:16px; }
+  canvas { border:1px solid var(--border); border-radius:10px; background:linear-gradient(#1a2b47,#0c1a30); cursor:pointer; }
+  .legend { margin-top:10px; color:var(--muted); font-size:12px; line-height:1.9; text-align:center; }
+  .legend b { font-weight:700; }
+</style>
+</head>
+<body>
+  <h1>沙漏科技树 · 原型</h1>
+  <div class="sub">倒立瓶(手动)向上 · 正立瓶(挂机)向下 · 瓶口在中间对接<br>点击节点分配科技点，再点取消；共 60 点预算</div>
+  <div id="bar">
+    <span class="seg budget">预算 <b id="budget">60</b>/60</span>
+    <span class="seg infra">基建 <b id="infra">0</b>/15</span>
+    <span class="seg a">手动A <b id="cntA">0</b>/35</span>
+    <span class="seg b">挂机B <b id="cntB">0</b>/35</span>
+  </div>
+  <div id="warn"></div>
+  <canvas id="cv" width="640" height="800"></canvas>
+  <button id="resetBtn" style="font-family:inherit;font-size:13px;padding:6px 18px;border:1px solid #ffd166;border-radius:6px;background:transparent;color:#ffd166;cursor:pointer;letter-spacing:1px;margin:10px 0 4px;">重置方向（重新分配 A/B）</button>
+  <div class="legend">
+    <b style="color:#8fa0b8">灰</b>基建(共享) · <b style="color:#7ec8ff">蓝</b>手动A · <b style="color:#6ee7a0">绿</b>挂机B<br>
+    圆内数字=占点数，实心=已分配 · 终极节点(★)需方向点满才亮
+  </div>
+
+<script>
+(() => {
+  'use strict';
+  const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  const CX = W/2, ROOT_Y = 400;
+
+  // 节点数据: side = 'infra'|'A'|'B'; points 占点数; layer 层(相对根); slot 层内槽位
+  const nodes = [
+    // 基建(腰部两侧)
+    { id:'bottles', name:'瓶子组', points:10, side:'infra', x:90,  y:ROOT_Y },
+    { id:'hammers', name:'三锤',   points:3,  side:'infra', x:90,  y:ROOT_Y+46 },
+    { id:'cooldown',name:'三冷却', points:2,  side:'infra', x:90,  y:ROOT_Y-46 },
+    // A 方向(倒立瓶, 向上)
+    { id:'aLuck',  name:'入口',     points:1, side:'A', x:CX,      y:ROOT_Y-60 },
+    { id:'aStab',  name:'稳定',     points:3, side:'A', x:CX-80,   y:ROOT_Y-120 },
+    { id:'aBal',   name:'平衡',     points:3, side:'A', x:CX,      y:ROOT_Y-120 },
+    { id:'aStreak',name:'连击',     points:3, side:'A', x:CX+80,   y:ROOT_Y-120 },
+    { id:'aGod',   name:'神之一手', points:4, side:'A', x:CX-100,  y:ROOT_Y-185 },
+    { id:'aReward',name:'连击奖励', points:4, side:'A', x:CX,      y:ROOT_Y-185 },
+    { id:'aWindow',name:'连击时间', points:3, side:'A', x:CX+100,  y:ROOT_Y-185 },
+    { id:'aSlow',  name:'指针减速', points:3, side:'A', x:CX-110,  y:ROOT_Y-250 },
+    { id:'aPerfect',name:'完美判定',points:4, side:'A', x:CX,      y:ROOT_Y-250 },
+    { id:'aGolden',name:'金色概率+',points:3, side:'A', x:CX+110,  y:ROOT_Y-250 },
+    { id:'aFinal', name:'倒立宗师★',points:4, side:'A', x:CX,      y:ROOT_Y-320, final:true },
+    // B 方向(正立瓶, 向下) — 11 节点与 A 对称
+    { id:'bHand',  name:'入口',     points:1, side:'B', x:CX,      y:ROOT_Y+60 },
+    { id:'bUnlock',name:'解锁手',   points:3, side:'B', x:CX-80,   y:ROOT_Y+120 },
+    { id:'bFreq',  name:'手频率',   points:3, side:'B', x:CX,      y:ROOT_Y+120 },
+    { id:'bLuck',  name:'手几率',   points:3, side:'B', x:CX+80,   y:ROOT_Y+120 },
+    { id:'bStreak',name:'挂机连击', points:4, side:'B', x:CX-100,  y:ROOT_Y+185 },
+    { id:'bGolden',name:'手幸运',   points:3, side:'B', x:CX,      y:ROOT_Y+185 },
+    { id:'bSync',  name:'手速共享', points:3, side:'B', x:CX+100,  y:ROOT_Y+185 },
+    { id:'bOffline',name:'离线收益',points:4, side:'B', x:CX-100,  y:ROOT_Y+250 },
+    { id:'bHarvest',name:'自动收获',points:4, side:'B', x:CX,      y:ROOT_Y+250 },
+    { id:'bReport',name:'挂机报告', points:3, side:'B', x:CX+100,  y:ROOT_Y+250 },
+    { id:'bFinal', name:'自动化工厂★',points:4, side:'B', x:CX,    y:ROOT_Y+320, final:true },
+  ];
+
+  const alloc = {};   // id -> 是否已分配(本原型简化: 节点整体分配, 不细分)
+  let used = 0, infra = 0, cntA = 0, cntB = 0;
+
+  function recalc() {
+    used = infra = cntA = cntB = 0;
+    for (const n of nodes) {
+      if (!alloc[n.id]) continue;
+      used += n.points;
+      if (n.side === 'infra') infra += n.points;
+      else if (n.side === 'A') cntA += n.points;
+      else cntB += n.points;
+    }
+    document.getElementById('budget').textContent = used;
+    document.getElementById('infra').textContent = infra;
+    document.getElementById('cntA').textContent = cntA;
+    document.getElementById('cntB').textContent = cntB;
+    // 警告: 满一边时另一边是否只剩基础
+    const warn = document.getElementById('warn');
+    if (cntA >= 35 && cntB > 10) warn.textContent = '⚠ 手动A已满，挂机B应只剩基础(10点)';
+    else if (cntB >= 35 && cntA > 10) warn.textContent = '⚠ 挂机B已满，手动A应只剩基础(10点)';
+    else if (used > 60) warn.textContent = '⚠ 超出预算';
+    else warn.textContent = '';
+  }
+
+  // 瓶形轮廓
+  function drawBottleOutlines() {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6,5]);
+    // 倒立瓶(上半): 瓶底宽(顶部) → 瓶口窄(中间)
+    ctx.beginPath();
+    ctx.moveTo(CX-150, ROOT_Y-340);   // 左上(瓶底角)
+    ctx.lineTo(CX+150, ROOT_Y-340);   // 右上
+    ctx.lineTo(CX+28,  ROOT_Y-30);    // 右瓶颈
+    ctx.lineTo(CX-28,  ROOT_Y-30);    // 左瓶颈
+    ctx.closePath(); ctx.stroke();
+    // 正立瓶(下半): 瓶口窄(中间) → 瓶底宽(底部)
+    ctx.beginPath();
+    ctx.moveTo(CX-28,  ROOT_Y+30);
+    ctx.lineTo(CX+28,  ROOT_Y+30);
+    ctx.lineTo(CX+150, ROOT_Y+340);
+    ctx.lineTo(CX-150, ROOT_Y+340);
+    ctx.closePath(); ctx.stroke();
+    ctx.setLineDash([]);
+    // 基础/进阶分界虚线(A 上半 -152 / B 下半 +152)
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3,5]);
+    ctx.beginPath(); ctx.moveTo(CX-120, ROOT_Y-152); ctx.lineTo(CX+120, ROOT_Y-152); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(CX-120, ROOT_Y+152); ctx.lineTo(CX+120, ROOT_Y+152); ctx.stroke();
+    ctx.setLineDash([]);
+    // 分界标签
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.font = '9px "SimSun",monospace';
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText('基础 10', CX-126, ROOT_Y-152);
+    ctx.fillText('进阶 25', CX-126, ROOT_Y-152-8);
+    ctx.fillText('基础 10', CX-126, ROOT_Y+152);
+    ctx.fillText('进阶 25', CX-126, ROOT_Y+152+8);
+    ctx.restore();
+  }
+
+  // 连线(子节点连到上一层最近节点)
+  function drawLinks() {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 1;
+    const byLayer = {};   // side -> layers
+    // 简化: 手动画关键连线
+    const links = [
+      ['aFinal','aPerfect'], ['aPerfect','aReward'], ['aReward','aStreak'], ['aStreak','aLuck'],
+      ['aLuck','bHand'],  // 根连接
+      ['bHand','bFreq'], ['bFreq','bGolden'], ['bGolden','bOffline'],
+      ['bOffline','bHarvest'], ['bHarvest','bFinal'],
+    ];
+    for (const [a,b] of links) {
+      const na = nodes.find(n=>n.id===a), nb = nodes.find(n=>n.id===b);
+      if (na && nb) { ctx.beginPath(); ctx.moveTo(na.x,na.y); ctx.lineTo(nb.x,nb.y); ctx.stroke(); }
+    }
+    // 根节点
+    ctx.restore();
+  }
+
+  function drawNode(n) {
+    const on = !!alloc[n.id];
+    let fill, stroke, glow;
+    if (n.side === 'infra') { fill = on ? '#5a6b85' : 'rgba(90,107,133,0.25)'; stroke = '#8fa0b8'; glow='rgba(143,160,184,.4)'; }
+    else if (n.side === 'A') { fill = on ? '#3b7db5' : 'rgba(126,200,255,0.18)'; stroke = '#7ec8ff'; glow='rgba(126,200,255,.5)'; }
+    else { fill = on ? '#2f8f5f' : 'rgba(110,231,160,0.18)'; stroke = '#6ee7a0'; glow='rgba(110,231,160,.5)'; }
+    // 终极节点需方向点满才可点
+    let disabled = false;
+    if (n.final) {
+      if (n.side === 'A' && cntA < 31) disabled = true;   // 35 - 4(终极自身)
+      if (n.side === 'B' && cntB < 31) disabled = true;   // 35 - 4(终极自身)
+    }
+    ctx.save();
+    if (on) { ctx.shadowColor = glow; ctx.shadowBlur = 10; }
+    ctx.fillStyle = fill;
+    ctx.strokeStyle = disabled ? 'rgba(255,255,255,0.2)' : stroke;
+    ctx.lineWidth = disabled ? 1 : 2;
+    ctx.globalAlpha = disabled ? 0.4 : 1;
+    ctx.beginPath(); ctx.arc(n.x, n.y, 17, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0;
+    // 占点数
+    ctx.fillStyle = disabled ? '#666' : (on ? '#fff' : stroke);
+    ctx.font = 'bold 13px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(n.points, n.x, n.y);
+    // 名称
+    ctx.fillStyle = disabled ? '#666' : '#cbd5e6';
+    ctx.font = '11px "SimSun","Courier New",monospace';
+    ctx.fillText(n.name, n.x, n.y + 30);
+    // 终极节点效果标注
+    if (n.final) {
+      ctx.fillStyle = disabled ? '#555' : '#ffd166';
+      ctx.font = '10px "SimSun",monospace';
+      ctx.fillText(n.side === 'A' ? '→ 解锁 Zoom 专注' : '→ 解锁桌面事件', n.x, n.y + 45);
+    }
+    ctx.restore();
+  }
+
+  function drawRoot() {
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,209,102,0.2)';
+    ctx.strokeStyle = '#ffd166';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(CX, ROOT_Y, 20, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ffd166';
+    ctx.font = 'bold 12px monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('根', CX, ROOT_Y);
+    ctx.font = '10px "SimSun",monospace';
+    ctx.fillStyle = '#cbd5e6';
+    ctx.fillText('瓶口对接', CX, ROOT_Y+36);
+    ctx.restore();
+  }
+
+  function draw() {
+    ctx.clearRect(0,0,W,H);
+    drawBottleOutlines();
+    drawLinks();
+    drawRoot();
+    for (const n of nodes) drawNode(n);
+  }
+
+  function hit(x, y) {
+    for (const n of nodes) {
+      if (Math.hypot(x-n.x, y-n.y) < 20) return n;
+    }
+    return null;
+  }
+
+  cv.addEventListener('click', (e) => {
+    const r = cv.getBoundingClientRect();
+    const x = (e.clientX - r.left) * (W / r.width);
+    const y = (e.clientY - r.top) * (H / r.height);
+    const n = hit(x, y);
+    if (!n) return;
+    // 终极节点门槛
+    if (n.final) {
+      const needA = n.side==='A' && cntA < 31;
+      const needB = n.side==='B' && cntB < 27;
+      if (needA || needB) { recalc(); draw(); return; }
+    }
+    if (alloc[n.id]) { delete alloc[n.id]; }        // 取消分配
+    else {
+      if (used + n.points > 60) { recalc(); draw(); return; }
+      alloc[n.id] = true;
+    }
+    recalc(); draw();
+  });
+
+  // 重置: 清空 A/B 方向分配, 保留基建(模拟"重新分配方向点 + 清空手")
+  document.getElementById('resetBtn').addEventListener('click', () => {
+    for (const n of nodes) {
+      if (n.side !== 'infra') delete alloc[n.id];
+    }
+    recalc(); draw();
+  });
+
+  draw();
+  recalc();
+})();
+</script>
+</body>
+</html>

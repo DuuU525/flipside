@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>金色瞬间 · 粒子方案对比</title>
+<style>
+  :root { --fg: #e8edf5; --muted: #8fa0b8; --accent: #ffd166; --border: rgba(255,255,255,.12); --card: rgba(20,28,42,.6); }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "SimSun", "Courier New", monospace;
+    background: radial-gradient(1200px 700px at 50% 0%, #16233a, #0a1322);
+    color: var(--fg); min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; padding: 28px 16px; -webkit-font-smoothing: none;
+  }
+  h1 { font-size: 19px; letter-spacing: 2px; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: 12px; margin-bottom: 16px; text-align: center; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  .cell {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  }
+  .cell canvas { background: linear-gradient(#1f3d63, #0c1e38); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+  .cell .name { font-size: 15px; font-weight: 700; color: #ffd166; letter-spacing: 1px; }
+  .cell .desc { font-size: 11px; color: var(--muted); text-align: center; line-height: 1.6; }
+  .cell button {
+    font-family: inherit; font-size: 13px; padding: 6px 16px; border-radius: 6px; cursor: pointer;
+    border: 1px solid #ffd166; background: transparent; color: #ffd166; letter-spacing: 1px;
+  }
+  .cell button:hover { background: rgba(255,209,102,.12); }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 16px; line-height: 1.8; text-align: center; }
+</style>
+</head>
+<body>
+  <h1>金色瞬间 · 粒子方案对比</h1>
+  <div class="sub">点击格子或按钮触发，对比 4 种替代方案的手感</div>
+  <div class="grid">
+    <div class="cell">
+      <div class="name">方案1 · 冲击波环</div>
+      <canvas id="c1" width="400" height="240"></canvas>
+      <button onclick="fire(1)">触发</button>
+      <div class="desc">1 圈金色光环从中心扩散（可叠 2 圈错峰），干净利落的"音爆"</div>
+    </div>
+    <div class="cell">
+      <div class="name">方案2 · 上升星光</div>
+      <canvas id="c2" width="400" height="240"></canvas>
+      <button onclick="fire(2)">触发</button>
+      <div class="desc">5-8 粒金色星点缓慢向上飘升，左右摆动渐隐，优雅克制</div>
+    </div>
+    <div class="cell">
+      <div class="name">方案3 · 金色光柱</div>
+      <canvas id="c3" width="400" height="240"></canvas>
+      <button onclick="fire(3)">触发</button>
+      <div class="desc">垂直金色光束冲向天空，半透明渐变，1.5s 消散，抽卡"出货"感</div>
+    </div>
+    <div class="cell">
+      <div class="name">方案4 · 同心圆脉冲</div>
+      <canvas id="c4" width="400" height="240"></canvas>
+      <button onclick="fire(4)">触发</button>
+      <div class="desc">2-3 圈半透明金色圆环像声呐/涟漪错峰扩散，安静</div>
+    </div>
+  </div>
+  <div class="hint">
+    每个格子里有个<b style="color:#ffd166">倒立金瓶</b>，触发点在瓶口。<br>
+    重点感受：<b>冲击波(1)</b>的利落 vs <b>光柱(3)</b>的仪式感 vs <b>星光(2)</b>的安静优雅 vs <b>脉冲(4)</b>的涟漪
+  </div>
+
+<script>
+(() => {
+  'use strict';
+  const fx = { 1: [], 2: [], 3: [], 4: [] };   // 每方案的活跃粒子
+  const cvs = { 1: document.getElementById('c1'), 2: document.getElementById('c2'), 3: document.getElementById('c3'), 4: document.getElementById('c4') };
+  const ctxs = {};
+  for (const k in cvs) ctxs[k] = cvs[k].getContext('2d');
+
+  // 触发点(瓶口, 画布中心偏上)
+  const OX = 200, OY = 110;
+
+  // ---- 各方案生成 ----
+  function fire(n) {
+    const arr = fx[n]; arr.length = 0;
+    const now = performance.now();
+    if (n === 1) {  // 冲击波环: 2 圈错峰
+      arr.push({ t0: now, type: 'ring', r0: 0, r1: 95, dur: 320, w: 6, a: 0.9 });
+      arr.push({ t0: now + 60, type: 'ring', r0: 0, r1: 95, dur: 320, w: 3, a: 0.6 });
+    } else if (n === 2) {  // 上升星光: 7 粒
+      for (let i = 0; i < 7; i++) {
+        arr.push({ t0: now, type: 'star', x: OX + (Math.random()*2-1)*30, y: OY, vx: (Math.random()*2-1)*14, vy: -(20+Math.random()*25), rot: Math.random()*Math.PI*2, dur: 1000+Math.random()*400, size: 3+Math.random()*3 });
+      }
+    } else if (n === 3) {  // 光柱: 从瓶口向上
+      arr.push({ t0: now, type: 'pillar', dur: 1500 });
+    } else if (n === 4) {  // 同心圆脉冲: 3 圈错峰
+      for (let i = 0; i < 3; i++) {
+        arr.push({ t0: now + i*70, type: 'ring', r0: 0, r1: 80, dur: 420, w: 2.5, a: 0.45 });
+      }
+    }
+  }
+
+  function drawGoldBottle(c) {
+    const s = 0.6, bw = 18*s, tw = 7*s, hh = 60*s;
+    c.save();
+    c.translate(OX, OY + hh);   // 脚点
+    c.rotate(Math.PI);          // 倒立(瓶口朝下 = 脚点在上)
+    const grad = c.createLinearGradient(0,-hh,0,hh);
+    grad.addColorStop(0,'rgba(255,224,138,.9)'); grad.addColorStop(1,'rgba(255,183,3,.6)');
+    c.fillStyle = grad; c.strokeStyle = '#ffd166'; c.lineWidth = 2;
+    c.shadowColor = '#ffd166'; c.shadowBlur = 16;
+    c.beginPath();
+    c.moveTo(-bw,-hh); c.lineTo(bw,-hh); c.lineTo(tw,hh); c.lineTo(-tw,hh); c.closePath();
+    c.fill(); c.stroke();
+    c.shadowBlur = 0;
+    c.restore();
+  }
+
+  function drawRing(c, p, now) {
+    const t = (now - p.t0) / p.dur;
+    if (t >= 1) return true;
+    const k = t * t;                       // 加速扩散(先慢后快更像冲击)
+    const r = p.r0 + (p.r1 - p.r0) * k;
+    const a = p.a * (1 - t);
+    c.save();
+    c.strokeStyle = 'rgba(255,209,102,' + a.toFixed(3) + ')';
+    c.lineWidth = p.w;
+    c.shadowColor = 'rgba(255,209,102,' + (a*0.8).toFixed(3) + ')';
+    c.shadowBlur = 12;
+    c.beginPath(); c.arc(OX, OY, r, 0, Math.PI*2); c.stroke();
+    c.restore();
+    return false;
+  }
+
+  function drawStar(c, p, now) {
+    const t = (now - p.t0) / p.dur;
+    if (t >= 1) return true;
+    const x = p.x + p.vx * t + Math.sin(t*6)*3;   // 轻微左右摆动
+    const y = p.y + p.vy * (t * p.dur / 1000);
+    const a = 1 - t;
+    c.save();
+    c.translate(x, y); c.rotate(p.rot + t*3);
+    c.fillStyle = 'rgba(255,224,138,' + a.toFixed(3) + ')';
+    c.shadowColor = 'rgba(255,209,102,' + (a*0.8).toFixed(3) + ')';
+    c.shadowBlur = 8;
+    // 四角星
+    const r = p.size;
+    c.beginPath();
+    c.moveTo(0,-r); c.lineTo(r*0.3,-r*0.3); c.lineTo(r,0); c.lineTo(r*0.3,r*0.3);
+    c.lineTo(0,r); c.lineTo(-r*0.3,r*0.3); c.lineTo(-r,0); c.lineTo(-r*0.3,-r*0.3);
+    c.closePath(); c.fill();
+    c.restore();
+    return false;
+  }
+
+  function drawPillar(c, p, now) {
+    const t = (now - p.t0) / p.dur;
+    if (t >= 1) return true;
+    // 出现-维持-消散: 前 20% 冲起, 中间维持, 后 30% 消散
+    let a;
+    if (t < 0.2) a = t / 0.2;
+    else if (t < 0.7) a = 1;
+    else a = 1 - (t - 0.7) / 0.3;
+    const h = 130 * Math.min(1, t / 0.2);
+    c.save();
+    const grad = c.createLinearGradient(0, OY, 0, OY - h);
+    grad.addColorStop(0, 'rgba(255,209,102,' + (a*0.9).toFixed(3) + ')');
+    grad.addColorStop(1, 'rgba(255,209,102,0)');
+    c.fillStyle = grad;
+    // 锥形光束(底部宽, 顶部收窄)
+    c.beginPath();
+    c.moveTo(OX - 18, OY);
+    c.lineTo(OX + 18, OY);
+    c.lineTo(OX + 4, OY - h);
+    c.lineTo(OX - 4, OY - h);
+    c.closePath();
+    c.fill();
+    c.restore();
+    return false;
+  }
+
+  function loop(now) {
+    for (const k in ctxs) {
+      const c = ctxs[k], cv = cvs[k];
+      c.clearRect(0, 0, cv.width, cv.height);
+      drawGoldBottle(c);
+      const arr = fx[k];
+      for (let i = arr.length - 1; i >= 0; i--) {
+        const p = arr[i];
+        let done = false;
+        if (p.type === 'ring') done = drawRing(c, p, now);
+        else if (p.type === 'star') done = drawStar(c, p, now);
+        else if (p.type === 'pillar') done = drawPillar(c, p, now);
+        if (done) arr.splice(i, 1);
+      }
+    }
+    requestAnimationFrame(loop);
+  }
+
+  for (const k in cvs) {
+    cvs[k].addEventListener('click', () => fire(+k));
+  }
+  // 暴露到全局, 供 HTML onclick 按钮调用
+  window.fire = fire;
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

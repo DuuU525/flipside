@@ -101,6 +101,9 @@
         <span class="tech-points-label">科技点</span>
         <b id="techPointsCount">0</b><span class="tech-points-cap">/ 60</span>
         <button id="buyTechPointBtn" class="tech-buy-btn" title="用瓶盖兑换科技点">+1 (<span id="techPointPrice">100</span>盖)</button>
+        <label class="tech-gate-toggle" title="成就门槛：开启后第 N 个科技点需达成 ceil(N/5) 个成就">
+          <input type="checkbox" id="achieveGateToggle"> 成就门槛
+        </label>
       </div>
       <button id="techCloseBtn" class="tech-close" aria-label="关闭"></button>
     </div>
@@ -116,6 +119,7 @@
       </div>
       <div class="tech-foot-right">
         <span class="tech-hint">拖拽平移 · 滚轮缩放</span>
+        <button id="techResetDirBtn" class="tech-reset tech-reset-dir" aria-label="重置方向">重置方向</button>
         <button id="techResetBtn" class="tech-reset" aria-label="重置视图">重置视图</button>
       </div>
     </div>
@@ -138,6 +142,27 @@
     <div class="confirm-actions">
       <button id="confirmCancelBtn" class="confirm-btn confirm-cancel">取消</button>
       <button id="confirmOkBtn" class="confirm-btn confirm-ok">确认重新开始</button>
+    </div>
+  </div>
+</div>
+
+<!-- 重置方向确认框（重新分配方向科技点 + 清空手，不返还） -->
+<div id="resetDirOverlay" class="confirm-overlay hidden">
+  <div class="confirm-card" role="dialog" aria-modal="true">
+    <div class="confirm-title">重置科技方向？</div>
+    <div class="confirm-body">
+      <p>重置将重新分配<strong>方向节点（手动A / 挂机B）</strong>的科技点：</p>
+      <ul>
+        <li>方向节点科技点 <strong>全额退回</strong>（重新分配）</li>
+        <li>方向产物道具「手」<strong>清空且不返还瓶盖</strong></li>
+        <li>中立基建（瓶子/锤子/冷却）<strong>保留</strong></li>
+        <li>成就 · 里程碑 <strong>不退回</strong></li>
+      </ul>
+      <p class="confirm-warn">用于切换「手动 / 挂机」路线，此操作无法撤销。</p>
+    </div>
+    <div class="confirm-actions">
+      <button id="resetDirCancelBtn" class="confirm-btn confirm-cancel">取消</button>
+      <button id="resetDirOkBtn" class="confirm-btn confirm-ok">确认重置方向</button>
     </div>
   </div>
 </div>

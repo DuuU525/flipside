@@ -166,6 +166,7 @@
   let techLevels = {};               // id -> 0(未解锁) 或 maxLevel/1(已解锁满级); 模型A一次性满级
   let techPoints = 0;                // 当前剩余可分配科技点
   let spentTechPoints = 0;           // 累计已购买科技点总数(决定第 N 点价格, 上限 CONFIG.techPoints.max)
+  let achieveGate = CONFIG.techPoints.achieveGate;   // 成就门槛开关(运行时, 默认读 CONFIG)
   let itemsOwned = {};               // id -> 已购买数量
   let stats = { earned: 0, inverted: 0, specialHits: 0, maxStreak: 0, golden: 0, consecutiveLie: 0 };  // 累计统计
   let achievements = {};             // 已达成成就 id -> true
@@ -273,6 +274,7 @@
           const parsed = JSON.parse(tp);
           if (typeof parsed.points === 'number') techPoints = parsed.points;
           if (typeof parsed.spent === 'number') spentTechPoints = parsed.spent;
+          if (typeof parsed.achieveGate === 'boolean') achieveGate = parsed.achieveGate;
         } catch (e) {}
       }
       const s = localStorage.getItem('pbottle.stats');
@@ -330,7 +332,7 @@
       localStorage.setItem('pbottle.attempts', String(attempts));
       localStorage.setItem('pbottle.panel', panelUnlocked ? '1' : '0');
       localStorage.setItem('pbottle.tech', JSON.stringify(techLevels));
-      localStorage.setItem('pbottle.techPoints', JSON.stringify({ points: techPoints, spent: spentTechPoints }));
+      localStorage.setItem('pbottle.techPoints', JSON.stringify({ points: techPoints, spent: spentTechPoints, achieveGate: achieveGate }));
       localStorage.setItem('pbottle.items', JSON.stringify(itemsOwned));
       localStorage.setItem('pbottle.stats', JSON.stringify(stats));
       localStorage.setItem('pbottle.achievements', JSON.stringify(achievements));
@@ -350,7 +352,7 @@
   // 兑换科技点: 瓶盖 → 科技点, 可选成就门槛(开关默认关)
   function buyTechPoint() {
     if (spentTechPoints >= CONFIG.techPoints.max) { flashInsufficient(); return false; }
-    if (CONFIG.techPoints.achieveGate) {
+    if (achieveGate) {
       const need = Math.ceil((spentTechPoints + 1) / 5);
       if (achievementCount() < need) {
         notifyTip('lock', '需达成 ' + need + ' 个成就');
@@ -1006,6 +1008,39 @@
   if (confirmCancelBtn) confirmCancelBtn.addEventListener('click', closeConfirmRestart);
   // 点击遮罩空白处取消
   if (confirmOverlay) confirmOverlay.addEventListener('click', (e) => { if (e.target === confirmOverlay) closeConfirmRestart(); });
+
+  // ============================ 重置方向(重新分配方向科技点 + 清空手) ============================
+  const resetDirOverlay = document.getElementById('resetDirOverlay');
+  const resetDirOkBtn = document.getElementById('resetDirOkBtn');
+  const resetDirCancelBtn = document.getElementById('resetDirCancelBtn');
+  const techResetDirBtn = document.getElementById('techResetDirBtn');
+  function openResetDir() { if (resetDirOverlay) resetDirOverlay.classList.remove('hidden'); }
+  function closeResetDir() { if (resetDirOverlay) resetDirOverlay.classList.add('hidden'); }
+  // 重置方向: 退回方向节点(A/B)科技点, 清空手(不返还瓶盖), 中立基建保留
+  function resetDirection() {
+    // 1) 计算方向节点消耗的科技点并退回
+    let refund = 0;
+    for (const node of TECH_TREE) {
+      if (node.side === 'infra') continue;              // 中立基建不动
+      if (techLevel(node.id) > 0) { refund += node.points; delete techLevels[node.id]; }
+    }
+    techPoints += refund;
+    // 2) 清空手(方向 B 产物), 不返还瓶盖
+    if (owned('hand') > 0) {
+      itemsOwned.hand = 0;
+      rebuildHands();
+    }
+    // 3) 若 Zoom 进行中, 结束它
+    if (zoom) { if (zoom.bottle) zoom.bottle.zoomFocus = false; zoom = null; }
+    Sound.purchase();
+    renderPanel();
+    saveState();
+    closeResetDir();
+  }
+  if (techResetDirBtn) techResetDirBtn.addEventListener('click', openResetDir);
+  if (resetDirOkBtn) resetDirOkBtn.addEventListener('click', resetDirection);
+  if (resetDirCancelBtn) resetDirCancelBtn.addEventListener('click', closeResetDir);
+  if (resetDirOverlay) resetDirOverlay.addEventListener('click', (e) => { if (e.target === resetDirOverlay) closeResetDir(); });
   window.addEventListener('resize', renderRestartBtn);
   window.addEventListener('orientationchange', renderRestartBtn);
 
@@ -2925,6 +2960,8 @@
     setCaps: (n) => { caps = Math.max(0, n | 0); scoreDisplay = caps; updateHUD(); renderPanel(); },      // 调试: 设置瓶盖(验证购买/锤子/红点流程)
     combo: (n) => { triggerCombo(Math.max(0, n | 0)); combo.active = n > 1; },  // 调试: 触发街霸式连击提示
     reset: resetGame,
+    resetDir: resetDirection,
+    achieveGate: () => achieveGate,
   };
 
   // ============================ 初始化 ============================
@@ -2935,8 +2972,14 @@
   // 兑换科技点按钮
   const buyTechPointBtn = document.getElementById('buyTechPointBtn');
   if (buyTechPointBtn) buyTechPointBtn.addEventListener('click', () => { buyTechPoint(); renderTech(); });
+  // 成就门槛开关
+  const achieveGateToggle = document.getElementById('achieveGateToggle');
+  if (achieveGateToggle) {
+    achieveGateToggle.addEventListener('change', () => { achieveGate = achieveGateToggle.checked; saveState(); });
+  }
   Music.setStreakGetter(() => streak);   // 音乐节奏与连击挂钩
   loadState();
+  if (achieveGateToggle) achieveGateToggle.checked = achieveGate;   // loadState 后同步开关状态
   rollDaily();
   updateSoundUI();
   renderRestartBtn();

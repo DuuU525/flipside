@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>飘字风格对比 · 原型</title>
+<style>
+  :root { --fg: #e8edf5; --muted: #8fa0b8; --accent: #ffd166; --border: rgba(255,255,255,.12); --card: rgba(20,28,42,.6); }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "SimSun", "Courier New", monospace;
+    background: radial-gradient(1200px 700px at 50% 0%, #16233a, #0a1322);
+    color: var(--fg); min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; padding: 26px 16px; -webkit-font-smoothing: none;
+  }
+  h1 { font-size: 19px; letter-spacing: 2px; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: 12px; margin-bottom: 16px; text-align: center; line-height: 1.7; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .cell {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  }
+  .cell canvas { background: linear-gradient(#1f3d63, #0c1e38); border: 1px solid var(--border); border-radius: 8px; }
+  .cell .name { font-size: 15px; font-weight: 700; color: #ffd166; letter-spacing: 1px; }
+  .cell .desc { font-size: 11px; color: var(--muted); text-align: center; line-height: 1.6; }
+  .btns { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+  .cell button {
+    font-family: inherit; font-size: 12px; padding: 5px 12px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--border); background: transparent; color: var(--fg); letter-spacing: 1px;
+  }
+  .cell button:hover { border-color: #ffd166; }
+  .legend { margin-top: 16px; color: var(--muted); font-size: 12px; line-height: 2; text-align: center; }
+  .legend b { font-weight: 700; }
+</style>
+</head>
+<body>
+  <h1>飘字风格对比 · 原型</h1>
+  <div class="sub">同一状态下三种方案的飘字效果，点按钮触发看手感<br>绿色=直立 +N，金黄=倒立 +N，亮金=金色瞬间 +N，平躺不飘</div>
+  <div class="grid">
+    <div class="cell">
+      <div class="name">方案 A · 纯数字</div>
+      <canvas id="ca" width="260" height="300"></canvas>
+      <div class="btns">
+        <button onclick="FA('up')">直立</button>
+        <button onclick="FA('inv')">倒立</button>
+        <button onclick="FA('gold')">金色</button>
+      </div>
+      <div class="desc">只有 +N，颜色 + 字号区分</div>
+    </div>
+    <div class="cell">
+      <div class="name">方案 B · 数字+图标</div>
+      <canvas id="cb" width="260" height="300"></canvas>
+      <div class="btns">
+        <button onclick="FB('up')">直立</button>
+        <button onclick="FB('inv')">倒立</button>
+        <button onclick="FB('gold')">金色</button>
+      </div>
+      <div class="desc">+N 旁加像素图标（无/updown/sparkle）</div>
+    </div>
+    <div class="cell">
+      <div class="name">方案 C · 三层编码</div>
+      <canvas id="cc" width="260" height="300"></canvas>
+      <div class="btns">
+        <button onclick="FC('up')">直立</button>
+        <button onclick="FC('inv')">倒立</button>
+        <button onclick="FC('gold')">金色</button>
+      </div>
+      <div class="desc">颜色 + 字号 + 动画（弹跳/发光）</div>
+    </div>
+  </div>
+  <div class="legend">
+    <b style="color:#52e07c">直立</b> 基准绿 · <b style="color:#ffc857">倒立</b> 金黄 ×1.35 · <b style="color:#ffd166">金色瞬间</b> 亮金 ×1.6 + 发光<br>
+    平躺不飘任何字
+  </div>
+
+<script>
+(() => {
+  'use strict';
+  const FONT = '"SimSun","Courier New",monospace';
+  const cvs = { a: document.getElementById('ca'), b: document.getElementById('cb'), c: document.getElementById('cc') };
+  const ctxs = {};
+  for (const k in cvs) ctxs[k] = cvs[k].getContext('2d');
+  const floats = { a: [], b: [], c: [] };
+
+  // 像素图标(简画): updown / sparkle
+  function drawIcon(c, x, y, kind, size) {
+    c.save(); c.translate(x, y);
+    if (kind === 'updown') {
+      c.fillStyle = '#ffc857';
+      c.fillRect(-size/2, -size/2, size, size/4);
+      c.fillRect(-size/2, size/2 - size/4, size, size/4);
+      c.fillRect(-size/4, -size/2, size/4, size);   // 上下箭头(竖+横)
+      c.fillRect(-size/2, 0, size, size/4);
+    } else if (kind === 'sparkle') {
+      c.fillStyle = '#ffd166';
+      const r = size/2, rr = r*0.35;
+      c.beginPath();
+      c.moveTo(0,-r); c.lineTo(rr,-rr); c.lineTo(r,0); c.lineTo(rr,rr);
+      c.lineTo(0,r); c.lineTo(-rr,rr); c.lineTo(-r,0); c.lineTo(-rr,-rr);
+      c.closePath(); c.fill();
+    }
+    c.restore();
+  }
+
+  function pushF(target, text, color, scale, kind, anim) {
+    const cv = cvs[target];
+    floats[target].push({
+      text, color, scale, kind, anim,
+      x: cv.width/2, y: cv.height/2,
+      t0: performance.now(), life: 1100,
+    });
+  }
+
+  // 方案 A: 纯数字
+  window.FA = function(s) {
+    if (s === 'up') pushF('a', '+12', '#52e07c', 1, null, 'none');
+    else if (s === 'inv') pushF('a', '+60', '#ffc857', 1.35, null, 'none');
+    else pushF('a', '+600', '#ffd166', 1.6, null, 'glow');
+  };
+  // 方案 B: 数字+图标
+  window.FB = function(s) {
+    if (s === 'up') pushF('b', '+12', '#52e07c', 1, null, 'none');
+    else if (s === 'inv') pushF('b', '+60', '#ffc857', 1.35, 'updown', 'none');
+    else pushF('b', '+600', '#ffd166', 1.6, 'sparkle', 'glow');
+  };
+  // 方案 C: 三层编码
+  window.FC = function(s) {
+    if (s === 'up') pushF('c', '+12', '#52e07c', 1, null, 'rise');
+    else if (s === 'inv') pushF('c', '+60', '#ffc857', 1.35, null, 'bounce');
+    else pushF('c', '+600', '#ffd166', 1.6, null, 'glowbounce');
+  };
+
+  function loop(now) {
+    for (const k in ctxs) {
+      const c = ctxs[k], cv = cvs[k];
+      c.clearRect(0, 0, cv.width, cv.height);
+      // 底部示意瓶子(倒立金瓶)
+      const s = 0.5, bw = 18*s, tw = 7*s, hh = 60*s;
+      c.save();
+      c.translate(cv.width/2, cv.height - 20);
+      c.rotate(Math.PI);
+      const grad = c.createLinearGradient(0,-hh,0,hh);
+      grad.addColorStop(0,'rgba(255,224,138,.85)'); grad.addColorStop(1,'rgba(255,183,3,.55)');
+      c.fillStyle = grad; c.strokeStyle = '#ffd166'; c.lineWidth = 1.5;
+      c.beginPath();
+      c.moveTo(-bw,-hh); c.lineTo(bw,-hh); c.lineTo(tw,hh); c.lineTo(-tw,hh); c.closePath();
+      c.fill(); c.stroke();
+      c.restore();
+
+      const arr = floats[k];
+      for (let i = arr.length - 1; i >= 0; i--) {
+        const f = arr[i];
+        const t = (now - f.t0) / f.life;
+        if (t >= 1) { arr.splice(i, 1); continue; }
+        let y = f.y, alpha = 1, scale = f.scale;
+        // 动画
+        if (f.anim === 'rise' || f.anim === 'none') y = f.y - 40 * t;
+        else if (f.anim === 'bounce') {
+          y = f.y - 40 * t;
+          scale = f.scale * (1 + 0.25 * Math.sin(t * Math.PI));  // 落地弹跳
+        } else if (f.anim === 'glow') { y = f.y - 40 * t; }
+        else if (f.anim === 'glowbounce') {
+          y = f.y - 46 * t;
+          scale = f.scale * (1 + 0.35 * Math.sin(t * Math.PI));
+        }
+        if (t > 0.7) alpha = 1 - (t - 0.7) / 0.3;
+        c.save();
+        c.globalAlpha = alpha;
+        c.translate(f.x, y);
+        c.scale(scale, scale);
+        c.textAlign = 'center';
+        c.textBaseline = 'middle';
+        c.font = 'bold 22px ' + FONT;
+        if (f.anim === 'glow' || f.anim === 'glowbounce') {
+          c.shadowColor = '#ffd166'; c.shadowBlur = 16;
+        }
+        // 图标(方案B)
+        if (f.kind) {
+          const tw2 = c.measureText(f.text).width;
+          drawIcon(c, -tw2/2 - 14, 0, f.kind, 16);
+        }
+        c.fillStyle = f.color;
+        c.fillText(f.text, 0, 0);
+        c.restore();
+      }
+    }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

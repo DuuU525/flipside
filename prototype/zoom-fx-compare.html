@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Zoom 视觉方案对比</title>
+<style>
+  :root { --fg:#e6edf7; --muted:#8b98ad; --border:#2a3550; --card:#121b2e; --accent:#c792ea; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#0a0f1c; color:var(--fg); font-family:'Courier New','SimSun',monospace; padding:20px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:12px; margin-bottom:16px; }
+  .row { display:flex; gap:16px; flex-wrap:wrap; }
+  .card { background:var(--card); border:1px solid var(--border); padding:12px; }
+  .card h2 { font-size:14px; margin:0 0 2px; color:var(--accent); }
+  .card p { font-size:11px; color:var(--muted); margin:0 0 8px; line-height:1.5; }
+  canvas { display:block; image-rendering:pixelated; }
+</style>
+</head>
+<body>
+  <h1>Zoom 专注领域 · 视觉方案对比</h1>
+  <div class="sub">同一场景：4 个普通瓶 + 1 个目标瓶（紫色高亮）。看哪个「进入专注领域」的感觉最强。</div>
+  <div class="row">
+    <div class="card">
+      <h2>A · 暗幕聚光</h2>
+      <p>全屏黑幕 + 目标瓶光洞 + 放大 + 紫光晕</p>
+      <canvas id="a" width="340" height="460"></canvas>
+    </div>
+    <div class="card">
+      <h2>B · 紫雾领域 + 光环</h2>
+      <p>紫色暗角 + 旋转光环 + 上升粒子</p>
+      <canvas id="b" width="340" height="460"></canvas>
+    </div>
+    <div class="card">
+      <h2>C · 冻结聚焦 + 脉冲</h2>
+      <p>整体压暗 + 目标呼吸放大 + 底部地环</p>
+      <canvas id="c" width="340" height="460"></canvas>
+    </div>
+  </div>
+  <script>
+  // 简化桌面 + 瓶子复刻（非真实游戏代码，仅对比 Zoom 视觉）
+  const W = 340, H = 460;
+  // 桌面梯形（俯角投影）：后缘窄、前缘宽
+  function drawDesk(c) {
+    c.fillStyle = '#0d1524'; c.fillRect(0,0,W,H);
+    const g = c.createLinearGradient(0,120,0,H-40);
+    g.addColorStop(0,'#1f3d63'); g.addColorStop(1,'#0c1e38');
+    c.fillStyle = g;
+    c.beginPath();
+    c.moveTo(40,140); c.lineTo(W-40,140); c.lineTo(W-10,H-40); c.lineTo(10,H-40); c.closePath(); c.fill();
+    c.fillStyle = '#081527'; c.fillRect(10,H-40,W-20,30);
+    c.strokeStyle = 'rgba(190,220,255,0.5)'; c.lineWidth = 2;
+    c.beginPath(); c.moveTo(40,140); c.lineTo(W-40,140); c.stroke();
+  }
+  // 瓶子（简化，瓶口朝上）cx,cy 中心；scale 缩放
+  function drawBottle(c, cx, cy, scale, alpha) {
+    c.save();
+    c.globalAlpha = alpha;
+    c.translate(cx, cy);
+    c.scale(scale, scale);
+    const bw=30, tw=8, hh=58;
+    c.fillStyle = 'rgba(188,216,245,0.9)';
+    c.strokeStyle = '#3d8fd4';
+    c.lineWidth = 3;
+    c.beginPath();
+    c.moveTo(-bw+8, hh); c.lineTo(bw-8, hh);
+    c.quadraticCurveTo(bw, hh, bw, hh-8); c.lineTo(bw, -14);
+    c.quadraticCurveTo(bw, -28, 7, -28); c.lineTo(7, -44); c.lineTo(tw, -44);
+    c.lineTo(tw, -hh+1); c.quadraticCurveTo(tw, -hh, tw-3, -hh);
+    c.lineTo(-tw+3, -hh); c.quadraticCurveTo(-tw, -hh, -tw, -hh+1);
+    c.lineTo(-tw, -44); c.lineTo(-7, -44); c.lineTo(-7, -28);
+    c.quadraticCurveTo(-bw, -28, -bw, -14); c.lineTo(-bw, hh-8);
+    c.quadraticCurveTo(-bw, hh, -bw+8, hh);
+    c.closePath(); c.fill(); c.stroke();
+    // 瓶盖
+    c.fillStyle = '#ffd166'; c.strokeStyle = '#e8890c'; c.lineWidth = 2;
+    c.fillRect(-10, -hh-7, 20, 7); c.strokeRect(-10, -hh-7, 20, 7);
+    c.restore();
+  }
+  // 目标瓶紫色描边
+  function purpleOutline(c, cx, cy, scale, blur) {
+    c.save(); c.translate(cx, cy); c.scale(scale, scale);
+    const bw=30, tw=8, hh=58;
+    c.strokeStyle = 'rgba(199,146,234,0.95)';
+    c.lineWidth = 4;
+    c.shadowColor = 'rgba(199,146,234,0.9)'; c.shadowBlur = blur;
+    c.beginPath();
+    c.moveTo(-bw+8, hh); c.lineTo(bw-8, hh);
+    c.quadraticCurveTo(bw, hh, bw, hh-8); c.lineTo(bw, -14);
+    c.quadraticCurveTo(bw, -28, 7, -28); c.lineTo(7, -44); c.lineTo(tw, -44);
+    c.lineTo(tw, -hh+1); c.quadraticCurveTo(tw, -hh, tw-3, -hh);
+    c.lineTo(-tw+3, -hh); c.quadraticCurveTo(-tw, -hh, -tw, -hh+1);
+    c.lineTo(-tw, -44); c.lineTo(-7, -44); c.lineTo(-7, -28);
+    c.quadraticCurveTo(-bw, -28, -bw, -14); c.lineTo(-bw, hh-8);
+    c.quadraticCurveTo(-bw, hh, -bw+8, hh);
+    c.closePath(); c.stroke();
+    c.restore();
+  }
+  // 瓶底阴影
+  function drawShadow(c, cx, cy, w) {
+    c.save(); c.globalAlpha = 0.35;
+    c.fillStyle = '#000';
+    c.beginPath(); c.ellipse(cx, cy+58, w, w*0.35, 0, 0, Math.PI*2); c.fill();
+    c.restore();
+  }
+
+  const bottles = [
+    {x:70, y:200}, {x:170, y:250}, {x:260, y:180}, {x:120, y:330},
+  ];
+  const target = {x:230, y:330};
+
+  // 帧循环
+  function anim(cv, fn) {
+    const c = cv.getContext('2d');
+    let t0 = performance.now();
+    (function loop(now) {
+      const t = (now - t0) / 1000;
+      c.setTransform(1,0,0,1,0,0);
+      fn(c, t);
+      requestAnimationFrame(loop);
+    })(t0);
+  }
+
+  // ---- A 暗幕聚光 ----
+  anim(document.getElementById('a'), (c, t) => {
+    drawDesk(c);
+    // 普通瓶（暗）
+    for (const b of bottles) { drawShadow(c, b.x, b.y, 26); drawBottle(c, b.x, b.y, 1, 0.12); }
+    // 目标瓶（放大 + 紫光）
+    const s = 1.15;
+    drawShadow(c, target.x, target.y, 30);
+    drawBottle(c, target.x, target.y, s, 1);
+    purpleOutline(c, target.x, target.y, s, 18);
+    // 黑幕 + 光洞（目标瓶脚点上方）
+    const g = c.createRadialGradient(target.x, target.y-20, 10, target.x, target.y-20, 150);
+    g.addColorStop(0, 'rgba(5,8,16,0)');
+    g.addColorStop(0.55, 'rgba(5,8,16,0)');
+    g.addColorStop(1, 'rgba(5,8,16,0.82)');
+    c.fillStyle = g;
+    c.fillRect(0,0,W,H);
+  });
+
+  // ---- B 紫雾领域 + 光环 ----
+  anim(document.getElementById('b'), (c, t) => {
+    drawDesk(c);
+    for (const b of bottles) { drawShadow(c, b.x, b.y, 26); drawBottle(c, b.x, b.y, 1, 0.1); }
+    drawShadow(c, target.x, target.y, 28);
+    drawBottle(c, target.x, target.y, 1, 1);
+    purpleOutline(c, target.x, target.y, 1, 20);
+    // 旋转光环（两圈椭圆轨道粒子）
+    const cx = target.x, cy = target.y-20;
+    for (let i=0;i<12;i++) {
+      const a = t*1.8 + i/12*Math.PI*2;
+      const rx = 70, ry = 46;
+      const px = cx + Math.cos(a)*rx, py = cy + Math.sin(a)*ry;
+      c.save(); c.globalAlpha = 0.9;
+      c.fillStyle = '#c792ea';
+      c.shadowColor = '#c792ea'; c.shadowBlur = 8;
+      c.beginPath(); c.arc(px, py, 3.5, 0, Math.PI*2); c.fill(); c.restore();
+    }
+    // 上升粒子
+    for (let i=0;i<8;i++) {
+      const ph = (t*0.7 + i/8) % 1;
+      const px = cx + Math.sin(i*2.4 + t)*40;
+      const py = cy - ph*130;
+      c.save(); c.globalAlpha = (1-ph)*0.8;
+      c.fillStyle = '#c792ea';
+      c.shadowColor = '#c792ea'; c.shadowBlur = 6;
+      c.beginPath(); c.arc(px, py, 2.5, 0, Math.PI*2); c.fill(); c.restore();
+    }
+    // 紫色暗角 vignette
+    const g = c.createRadialGradient(W/2, H/2, 80, W/2, H/2, 280);
+    g.addColorStop(0, 'rgba(60,20,90,0)');
+    g.addColorStop(1, 'rgba(40,12,70,0.85)');
+    c.fillStyle = g; c.fillRect(0,0,W,H);
+  });
+
+  // ---- C 冻结聚焦 + 脉冲 ----
+  anim(document.getElementById('c'), (c, t) => {
+    drawDesk(c);
+    for (const b of bottles) { drawShadow(c, b.x, b.y, 26); drawBottle(c, b.x, b.y, 1, 0.08); }
+    // 目标瓶呼吸放大 1.0~1.2
+    const s = 1.0 + 0.1 + 0.1 * Math.sin(t*2.2);
+    drawShadow(c, target.x, target.y, 30);
+    drawBottle(c, target.x, target.y, s, 1);
+    purpleOutline(c, target.x, target.y, s, 24);
+    // 底部紫色地环（扩散脉冲）
+    const pr = (t*0.6)%1;
+    c.save();
+    c.strokeStyle = 'rgba(199,146,234,'+(0.7*(1-pr)).toFixed(3)+')';
+    c.lineWidth = 3;
+    c.shadowColor = '#c792ea'; c.shadowBlur = 10;
+    c.beginPath(); c.ellipse(target.x, target.y+58, 30+pr*60, (30+pr*60)*0.35, 0, 0, Math.PI*2); c.stroke();
+    c.restore();
+    // 全屏暗幕（无光洞）
+    c.fillStyle = 'rgba(5,8,16,0.55)'; c.fillRect(0,0,W,H);
+    // 顶部 ZOOM 大标题
+    c.save();
+    c.font = 'bold 28px Courier New, SimSun, monospace';
+    c.textAlign = 'center';
+    c.fillStyle = '#c792ea';
+    c.shadowColor = '#c792ea'; c.shadowBlur = 14;
+    c.fillText('ZOOM', W/2, 60);
+    c.restore();
+  });
+  </script>
+</body>
+</html>

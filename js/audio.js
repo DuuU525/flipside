@@ -195,6 +195,7 @@
     let timer = null;
     let step = 0;
     let streakGetter = () => 0;   // 当前连击数(外部注入)
+    let zoomActive = false;       // Zoom 专注领域激活(切换紧张段 + 加速 + 心跳)
     let noiseBuf = null;
     let currentStepMs = CONFIG.musicStreak.baseStepMs;   // 当前实际节奏(平滑趋近目标)
     let masterGain = null;        // 音乐总线(sidechain 闪避用)
@@ -207,6 +208,10 @@
     const MELODY_INTENSE = [659.25, 783.99, 880, 783.99, 1046.5, 880, 783.99, 659.25, 880, 1046.5, 1318.51, 1046.5, 880, 783.99, 659.25, 587.33];
     // 激昂段低音更活跃(C3-E3-C3-G3-C3-E3-G2-C3)
     const BASS_INTENSE   = [130.81, 0, 164.81, 0, 130.81, 0, 196.00, 0, 130.81, 0, 164.81, 0, 98.00, 0, 130.81, 0];
+    // Zoom 专注领域紧张段: 三全音/半音徘徊制造悬疑(659=E5 vs 622=Eb5), 上行推进增加紧迫
+    const MELODY_ZOOM = [659.25, 622.25, 659.25, 622.25, 659.25, 698.46, 740.00, 659.25, 783.99, 740.00, 659.25, 622.25, 659.25, 698.46, 740.00, 783.99];
+    // Zoom 紧张段低音: 极低 E2/Eb2/F2 徘徊, 压迫心跳感
+    const BASS_ZOOM   = [82.41, 0, 82.41, 0, 77.78, 0, 82.41, 0, 87.31, 0, 82.41, 0, 77.78, 0, 73.42, 0];
 
     function getMaster() {
       const c = Sound.getCtx(); if (!c) return null;
@@ -275,6 +280,23 @@
       src.start(t); src.stop(t + 0.15);
     }
 
+    // 心跳脉冲(Zoom 紧张感): 极低频 55→35Hz 长衰减, "咚-咚"压迫感
+    function heartBeat(t) {
+      if (!enabled || volume <= 0) return;
+      const c = Sound.getCtx(); if (!c) return;
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(55, t);
+      o.frequency.exponentialRampToValueAtTime(35, t + 0.18);
+      const v = Math.max(0.0001, 0.18 * volume);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(v, t + 0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+      o.connect(g);
+      g.connect(getMaster() || c.destination);
+      o.start(t); o.stop(t + 0.26);
+    }
+
     // hi-hat(高通噪声短促打击), vol 可选音量
     function hat(t, vol) {
       if (!enabled || volume <= 0) return;
@@ -303,22 +325,30 @@
       const c = Sound.getCtx(); if (!c) return;
       const t = c.currentTime + 0.06;
       const s = streakGetter();                       // 当前连击
-      const intense = s >= CONFIG.musicStreak.intenseAt;   // 高连击切换激昂段
-      const mel = (intense ? MELODY_INTENSE : MELODY)[step % MELODY.length];
-      const bass = (intense ? BASS_INTENSE : BASS)[step % BASS.length];
+      const zoom = zoomActive;                        // Zoom 专注领域
+      const intense = s >= CONFIG.musicStreak.intenseAt || zoom;   // 高连击或 Zoom 切换激昂/紧张段
+      const mel = zoom ? MELODY_ZOOM[step % MELODY_ZOOM.length]
+                 : (intense ? MELODY_INTENSE : MELODY)[step % MELODY.length];
+      const bass = zoom ? BASS_ZOOM[step % BASS_ZOOM.length]
+                 : (intense ? BASS_INTENSE : BASS)[step % BASS.length];
       if (mel) {
-        note(mel, 0.22, 'triangle', 0.11, t);
-        if (s >= CONFIG.musicStreak.harmonyAt) note(mel * 1.5, 0.20, 'triangle', 0.06, t);  // 五度和声
+        note(mel, 0.22, 'triangle', zoom ? 0.13 : 0.11, t);
+        if (s >= CONFIG.musicStreak.harmonyAt || zoom) note(mel * 1.5, 0.20, 'triangle', 0.06, t);  // 五度和声(zoom 常开)
       }
-      if (bass && s >= CONFIG.musicStreak.bassAt) note(bass, 0.36, 'sine', 0.09, t);
+      if (bass && (s >= CONFIG.musicStreak.bassAt || zoom)) note(bass, 0.36, 'sine', zoom ? 0.12 : 0.09, t);
       // 打击乐律动骨架: 底鼓(强拍, 始终有) + 军鼓(反拍, 连击达标) + hi-hat(基础每2步→达标每步)
       if (step % CONFIG.musicStreak.kickEvery === 0) kick(t);
-      if (s >= CONFIG.musicStreak.snareAt && step % 4 === 2) snare(t);
-      const hatEvery = s >= CONFIG.musicStreak.hatDenseAt ? 1 : 2;
-      if (step % hatEvery === 0) hat(t, s >= CONFIG.musicStreak.hatDenseAt ? 0.06 : 0.05);
+      if (s >= CONFIG.musicStreak.snareAt || zoom) {
+        if (step % 4 === 2) snare(t);
+        if (zoom && step % 2 === 0) heartBeat(t);   // Zoom 心跳脉冲(每2步"咚")
+      }
+      const hatEvery = (s >= CONFIG.musicStreak.hatDenseAt || zoom) ? 1 : 2;
+      if (step % hatEvery === 0) hat(t, (s >= CONFIG.musicStreak.hatDenseAt || zoom) ? 0.06 : 0.05);
       step++;
-      // 节奏随连击加速: 每连击缩短 stepPerStreak 毫秒, 下限 minStepMs; 平滑趋近避免突变
-      const target = Math.max(CONFIG.musicStreak.minStepMs, CONFIG.musicStreak.baseStepMs - s * CONFIG.musicStreak.stepPerStreak);
+      // 节奏随连击加速: 每连击缩短 stepPerStreak 毫秒, 下限 minStepMs; Zoom 更急促(压到 110ms); 平滑趋近避免突变
+      const target = zoom
+        ? 110
+        : Math.max(CONFIG.musicStreak.minStepMs, CONFIG.musicStreak.baseStepMs - s * CONFIG.musicStreak.stepPerStreak);
       currentStepMs += (target - currentStepMs) * CONFIG.musicStreak.smoothFactor;
       if (Math.abs(target - currentStepMs) < 0.5) currentStepMs = target;
       timer = setTimeout(scheduleStep, currentStepMs);
@@ -357,6 +387,7 @@
       isPlaying()   { return playing; },
       getTempo()    { return currentStepMs; },
       setStreakGetter(fn) { streakGetter = fn; },
+      setZoomActive(b) { zoomActive = !!b; },   // Zoom 专注领域: 切换紧张段+加速+心跳
     };
   })();
 

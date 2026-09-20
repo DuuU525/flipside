@@ -150,11 +150,16 @@
   const hammerFx = [];       // 锤子敲击动画(落下→敲击→上弹)
   const goldenFx = [];       // 金色瞬间特效(冲击波环 + 上升星光)
   let goldenFlashUntil = 0;  // 金色瞬间全屏闪光结束时间戳
+  let zoomFlashUntil = 0;    // Zoom 结果全屏闪光结束时间戳(成功绿/失败红)
+  let zoomFlashColor = '#52e07c';
+  let shakeUntil = 0;        // 屏幕抖动结束时间戳(失败反馈)
+  let shakeMag = 0;
   let drops = [];            // 桌面掉落物(奇妙事件): { id, kind, x, y, wx, wy, state, t0, expireAt, amount }
   let eventTimer = 0;        // 时间通道累计(ms)
   let handHitStreak = 0;     // 手连续命中计数(手连成通道)
   let dropIdSeq = 0;         // 掉落物自增 id
   let zoom = null;           // Zoom 专注领域: { bottle, target, targetCount, current, startStreak } | null
+  let zoomFx = null;         // Zoom 过渡动画: { phase: 'in'|'out', t0, dur, cx, cy }(暗幕淡入淡出)
   let techAnim = null;       // 科技树解锁/升级动画 { id, kind: 'unlock'|'upgrade' }
   let techAnimTimer = null;  // 科技树动画清除定时器
   let combo = { count: 0, t0: 0, active: false };  // 街霸式连击提示
@@ -446,6 +451,8 @@
     if (prevStreak > 0) Sound.streakBreak(prevStreak);
     if (streak < 2) combo.active = false;
     streakExpireAt = 0;
+    // Zoom 专注领域: 连击断掉(平躺或超时)即挑战失败, 避免 streak 挑战陷入"永达不到目标"的死局
+    if (zoom) endZoom(false);
   }
 
   // 手自动抛瓶的判定区间(基础区间 + 提高手的几率加成); 挂机不看蓄力条, 倒立中心用固定值
@@ -713,6 +720,7 @@
   }
 
   function settleResult(b) {
+    const wasInZoom = !!zoom;                             // 本帧开始时是否处于 Zoom(防 Zoom 内/结束瞬间连环再进; 须在 breakStreak 可能 endZoom 之前记录)
     let text = '', color = '#fff', icon = null;
     let gained = 0;                                       // 本次获得瓶盖数(用于飞向 HUD 动画)
     const bonus = effectiveStreakBonus();
@@ -777,8 +785,8 @@
     }
     // Zoom 判定: 挑战目标瓶的抛瓶结果(成功/失败)
     if (zoom) zoomSettle(b, b.state);
-    // Zoom 触发: 手动成功且连击≥20 时几率进入
-    if (!zoom && !isHand && b.state !== 'lying') tryTriggerZoom();
+    // Zoom 触发: 仅在"非 Zoom 状态"下手动成功时几率进入(本帧进入过 Zoom 则不触发, 避免 Zoom 内/结束瞬间连环再进)
+    if (!zoom && !wasInZoom && !isHand && b.state !== 'lying') tryTriggerZoom();
     if (caps > best) { best = caps; }
     if (streak > stats.maxStreak) { stats.maxStreak = streak; }
     updateHUD();
@@ -973,6 +981,11 @@
     eventTimer = 0;
     handHitStreak = 0;
     zoom = null;
+    zoomFx = null;
+    zoomFlashUntil = 0;
+    shakeUntil = 0;
+    shakeMag = 0;
+    Music.setZoomActive(false);   // 重置游戏退出 Zoom 音乐
     techAnim = null;
     if (techAnimTimer) { clearTimeout(techAnimTimer); techAnimTimer = null; }
     combo = { count: 0, t0: 0, active: false };
@@ -1031,7 +1044,8 @@
       rebuildHands();
     }
     // 3) 若 Zoom 进行中, 结束它
-    if (zoom) { if (zoom.bottle) zoom.bottle.zoomFocus = false; zoom = null; }
+    if (zoom) { if (zoom.bottle) zoom.bottle.zoomFocus = false; zoom = null; Music.setZoomActive(false); }
+    zoomFx = null;
     Sound.purchase();
     renderPanel();
     saveState();
@@ -2055,12 +2069,21 @@
   function spawnHammerFx(p) {
     hammerFx.push({ x: p.x, y: p.y, t0: performance.now() });
   }
+  // 十六进制颜色 + alpha → rgba 字符串(特效粒子颜色可配置)
+  function hexToRgba(hex, a) {
+    const h = hex.replace('#', '');
+    const r = parseInt(h.substring(0, 2), 16);
+    const g = parseInt(h.substring(2, 4), 16);
+    const b = parseInt(h.substring(4, 6), 16);
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + a.toFixed(3) + ')';
+  }
+
   // 金色瞬间特效: 冲击波环(主焦点, 干净利落的"音爆") + 上升星光(点缀, 梦幻收尾)
   function spawnGoldenBurst(p) {
     const now = performance.now();
     // 冲击波环: 2 圈错峰扩散, 加速扩散(先慢后快更像冲击)
-    goldenFx.push({ type: 'ring', x: p.x, y: p.y, t0: now,          r1: 95, dur: 320, w: 6,   a: 0.9 });
-    goldenFx.push({ type: 'ring', x: p.x, y: p.y, t0: now + 60,     r1: 95, dur: 320, w: 3,   a: 0.6 });
+    goldenFx.push({ type: 'ring', x: p.x, y: p.y, t0: now,          r1: 95, dur: 320, w: 6,   a: 0.9, color: '#ffd166' });
+    goldenFx.push({ type: 'ring', x: p.x, y: p.y, t0: now + 60,     r1: 95, dur: 320, w: 3,   a: 0.6, color: '#ffd166' });
     // 上升星光: 7 粒金色星点从瓶口缓慢上飘 + 轻微左右摆动, 渐隐
     for (let i = 0; i < 7; i++) {
       goldenFx.push({
@@ -2073,7 +2096,45 @@
         dur: 1000 + Math.random() * 400,
         size: 3 + Math.random() * 3,
         rot: Math.random() * Math.PI * 2,
+        color: '#ffd166',
       });
+    }
+  }
+
+  // Zoom 结果特效: 成功=绿色/紫色冲击波+星光+全屏绿闪; 失败=红色冲击波+全屏红闪+屏幕抖动
+  function spawnZoomResult(success, p) {
+    const now = performance.now();
+    if (success) {
+      // 成功: 紫色冲击波环(Zoom 专属色) + 上升星光 + 绿色全屏闪光(成功色)
+      goldenFx.push({ type: 'ring', x: p.x, y: p.y, t0: now,      r1: 110, dur: 360, w: 6, a: 0.95, color: '#c792ea' });
+      goldenFx.push({ type: 'ring', x: p.x, y: p.y, t0: now + 70, r1: 110, dur: 360, w: 3, a: 0.6,  color: '#c792ea' });
+      for (let i = 0; i < 9; i++) {
+        goldenFx.push({
+          type: 'star', x: p.x + (Math.random() * 2 - 1) * 36, y: p.y,
+          vx: (Math.random() * 2 - 1) * 16, vy: -(24 + Math.random() * 30),
+          t0: now + Math.random() * 120, dur: 1100 + Math.random() * 400,
+          size: 3 + Math.random() * 3, rot: Math.random() * Math.PI * 2,
+          color: i % 2 ? '#c792ea' : '#52e07c',
+        });
+      }
+      zoomFlashColor = '#52e07c';
+      zoomFlashUntil = now + 320;
+    } else {
+      // 失败: 红色收缩冲击波(向内坍塌) + 红色全屏闪 + 屏幕抖动
+      goldenFx.push({ type: 'ring', x: p.x, y: p.y, t0: now, r1: 90, dur: 280, w: 5, a: 0.9, color: '#ff6b6b' });
+      for (let i = 0; i < 5; i++) {
+        goldenFx.push({
+          type: 'star', x: p.x + (Math.random() * 2 - 1) * 30, y: p.y,
+          vx: (Math.random() * 2 - 1) * 10, vy: -(12 + Math.random() * 18),
+          t0: now, dur: 700 + Math.random() * 300,
+          size: 2 + Math.random() * 3, rot: Math.random() * Math.PI * 2,
+          color: '#ff6b6b',
+        });
+      }
+      zoomFlashColor = '#ff6b6b';
+      zoomFlashUntil = now + 260;
+      shakeUntil = now + 320;      // 屏幕抖动
+      shakeMag = 7;
     }
   }
   // 金色瞬间特效绘制(冲击波环 + 上升星光), 画在瓶子上方
@@ -2088,10 +2149,11 @@
         const k = t * t;                       // 加速扩散
         const r = g.r1 * k;
         const a = g.a * (1 - t);
+        const col = g.color || '#ffd166';      // 颜色可配置(金色瞬间/ Zoom 结果)
         ctx.save();
-        ctx.strokeStyle = 'rgba(255,209,102,' + a.toFixed(3) + ')';
+        ctx.strokeStyle = hexToRgba(col, a);
         ctx.lineWidth = g.w;
-        ctx.shadowColor = 'rgba(255,209,102,' + (a * 0.8).toFixed(3) + ')';
+        ctx.shadowColor = hexToRgba(col, a * 0.8);
         ctx.shadowBlur = 12;
         ctx.beginPath(); ctx.arc(g.x, g.y, r, 0, Math.PI * 2); ctx.stroke();
         ctx.restore();
@@ -2099,11 +2161,12 @@
         const x = g.x + g.vx * t + Math.sin(t * 6) * 3;
         const y = g.y + g.vy * (t * g.dur / 1000);
         const a = 1 - t;
+        const col = g.color || '#ffd166';
         ctx.save();
         ctx.translate(x, y);
         ctx.rotate(g.rot + t * 3);
-        ctx.fillStyle = 'rgba(255,224,138,' + a.toFixed(3) + ')';
-        ctx.shadowColor = 'rgba(255,209,102,' + (a * 0.8).toFixed(3) + ')';
+        ctx.fillStyle = hexToRgba(col, a);
+        ctx.shadowColor = hexToRgba(col, a * 0.8);
         ctx.shadowBlur = 8;
         const s = g.size;
         ctx.beginPath();
@@ -2417,12 +2480,13 @@
   function drawBottle(b) {
     const p = project(b.wx, b.wy, b.h);        // 脚点(瓶子底部中心)
     const hScale = b.flying ? 1 + (b.h / CONFIG.peakH) * 0.3 : 1;
-    const s = hScale * BOTTLE_SCALE;           // 瓶子整体缩放
+    let s = hScale * BOTTLE_SCALE;           // 瓶子整体缩放
+    if (b.zoomFocus) s *= 1.18;               // Zoom 目标瓶放大(聚焦)
     const lift = b.state === 'lying' ? BOTTOM_W * s : HALF_H * s; // 平躺中心在脚点上方半瓶宽(躺倒后瓶身半宽贴地), 立姿中心在脚点上方半瓶高
     const highlight = charging && charging.bottle === b;
     const heat = b.flying ? (b.heat || 0) : 0;                          // 连击提亮(仅飞行手动瓶)
     let alpha = (b.flying && b.source === 'hand') ? CONFIG.streakFx.handAlpha : 1;  // 挂机瓶降权
-    if (zoom && !b.zoomFocus) alpha *= 0.35;                           // Zoom 内非目标瓶暗淡
+    if (zoom && !b.zoomFocus) alpha *= 0.3;                            // Zoom 内非目标瓶更暗(配合全屏暗幕)
     const scaleY = b.flying ? Math.max(0.10, Math.abs(Math.cos(b.phi))) : 1;          // 空翻透视压缩
     ctx.save();
     ctx.translate(p.x, p.y - lift);
@@ -2431,14 +2495,15 @@
     ctx.globalAlpha = alpha;
     ctx.scale(1, scaleY);
     drawBottleFront(ctx, b.type, highlight, heat, b.golden);
-    // Zoom 目标瓶: 紫色外轮廓光晕(在 drawBottleFront 重置 shadow 之后画)
+    // Zoom 目标瓶: 紫色外轮廓光晕(呼吸脉冲, 在 drawBottleFront 重置 shadow 之后画)
     if (b.zoomFocus) {
       const bw = BOTTOM_W, tw = TOP_W, hh = HALF_H;
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 220);
       ctx.save();
-      ctx.strokeStyle = 'rgba(199,146,234,0.9)';
-      ctx.lineWidth = 3;
-      ctx.shadowColor = 'rgba(199,146,234,0.8)';
-      ctx.shadowBlur = 14;
+      ctx.strokeStyle = 'rgba(199,146,234,' + (0.7 + 0.3 * pulse).toFixed(3) + ')';
+      ctx.lineWidth = 3 + 2 * pulse;
+      ctx.shadowColor = 'rgba(199,146,234,' + (0.7 + 0.3 * pulse).toFixed(3) + ')';
+      ctx.shadowBlur = 16 + 12 * pulse;
       ctx.beginPath();
       ctx.moveTo(-bw + 8, hh); ctx.lineTo(bw - 8, hh);
       ctx.quadraticCurveTo(bw, hh, bw, hh - 8); ctx.lineTo(bw, -14);
@@ -2577,15 +2642,32 @@
     drawHammerFx();                   // 锤子落下敲击
     drawGoldenFx();                   // 金色瞬间特效(冲击波环 + 上升星光)
     drawDrops();                      // 桌面掉落物(奇妙事件)
-    if (charging) drawChargeBar();
 
     // 2) 最近邻放大到显示画布(产生像素颗粒)
     ui.imageSmoothingEnabled = false;
     ui.clearRect(0, 0, CONFIG.worldW, CONFIG.worldH);
+    // 屏幕抖动(失败反馈): 抖动游戏世界画面, 幅度随时间衰减
+    let shx = 0, shy = 0;
+    if (shakeUntil > 0) {
+      const now = performance.now();
+      if (now >= shakeUntil) { shakeUntil = 0; shakeMag = 0; }
+      else {
+        const k = 1 - (shakeUntil - now) / 320;
+        const mag = shakeMag * (1 - k) * k;
+        shx = (Math.random() * 2 - 1) * mag;
+        shy = (Math.random() * 2 - 1) * mag;
+      }
+    }
+    ui.save();
+    ui.translate(shx, shy);
     ui.drawImage(buf, 0, 0, CONFIG.worldW, CONFIG.worldH);
+    ui.restore();
+
+    // 2.5) Zoom 专注领域遮罩(盖住游戏世界, 但 UI 文字画在其上)
+    drawZoomOverlay();
 
     // 3) 文字/UI(原生分辨率, 清晰)
-    if (charging) drawChargeBarLabels();
+    if (charging) { drawChargeBar(); drawChargeBarLabels(); }   // 蓄力条画在暗幕之上(正常亮度)
     drawFloats();
     drawCombo();
     drawStreakTimer();
@@ -2601,29 +2683,95 @@
         ui.fillRect(0, 0, CONFIG.worldW, CONFIG.worldH);
       }
     }
+    // Zoom 结果全屏闪光(成功绿 / 失败红, 淡出)
+    if (zoomFlashUntil > 0) {
+      const now = performance.now();
+      const k = (zoomFlashUntil - now) / 320;
+      if (k <= 0) { zoomFlashUntil = 0; }
+      else {
+        ui.fillStyle = hexToRgba(zoomFlashColor, 0.30 * k);
+        ui.fillRect(0, 0, CONFIG.worldW, CONFIG.worldH);
+      }
+    }
   }
 
-  // Zoom 专注领域顶部提示
+  // Zoom 专注领域视觉: 全屏暗幕聚光 + 目标瓶光洞 + 整个舞台板块动态边缘光(方案A)
+  // 进入/退出带过渡: 暗幕 alpha 淡入淡出 + 光洞半径收缩/扩张
+  function drawZoomOverlay() {
+    // 光洞中心: Zoom 进行中取目标瓶, 退出过渡用 zoomFx 缓存的坐标
+    let cx, cy;
+    if (zoom) {
+      const s = 1.18 * BOTTLE_SCALE;
+      const fp = project(zoom.bottle.wx, zoom.bottle.wy, 0);
+      cx = fp.x;
+      cy = fp.y - HALF_H * s;
+    } else if (zoomFx) {
+      cx = zoomFx.cx;
+      cy = zoomFx.cy;
+    } else {
+      return;
+    }
+    // 过渡系数 k: 0→1 淡入, 1→0 淡出; 无过渡时恒为 1
+    let k = 1;
+    if (zoomFx) {
+      const el = (performance.now() - zoomFx.t0) / zoomFx.dur;
+      if (zoomFx.phase === 'in') {
+        k = Math.min(1, el);
+        if (el >= 1) zoomFx = null;         // 淡入完成
+      } else {                               // 'out'
+        k = Math.max(0, 1 - el);
+        if (el >= 1) zoomFx = null;         // 淡出完成
+      }
+    }
+    // 1) 全屏暗幕 + 光洞(径向渐变: 中心透明, 向外压暗, 聚焦目标瓶)
+    const r = 60 + 60 * k;                    // 光洞半径随过渡收缩/扩张
+    const g = ui.createRadialGradient(cx, cy, r * 0.32, cx, cy, r);
+    g.addColorStop(0, 'rgba(6,10,20,0)');
+    g.addColorStop(0.55, 'rgba(6,10,20,0)');
+    g.addColorStop(1, 'rgba(6,10,20,' + (0.84 * k).toFixed(3) + ')');
+    ui.fillStyle = g;
+    ui.fillRect(0, 0, CONFIG.worldW, CONFIG.worldH);
+    // 2) 整个桌面所在板块(舞台画布)动态边缘光: 呼吸脉冲紫光环绕四周
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
+    ui.save();
+    ui.strokeStyle = 'rgba(199,146,234,' + ((0.35 + 0.40 * pulse) * k).toFixed(3) + ')';
+    ui.lineWidth = 3;
+    ui.shadowColor = 'rgba(199,146,234,' + ((0.5 + 0.4 * pulse) * k).toFixed(3) + ')';
+    ui.shadowBlur = 16 + 14 * pulse;
+    ui.strokeRect(2, 2, CONFIG.worldW - 4, CONFIG.worldH - 4);
+    ui.restore();
+  }
+
+  // Zoom 专注领域顶部提示: "ZOOM" 标识 + 目标图标(fire=连击/updown=倒立) + 数字进度
   function drawZoomHint() {
     if (!zoom) return;
     let progress;
-    if (zoom.type === 'streak') progress = Math.max(0, streak - zoom.startStreak) + ' / ' + zoom.target;
-    else progress = zoom.current + ' / ' + zoom.target;
-    const txt = 'ZOOM ' + zoom.label + ' · 进度 ' + progress + ' · 只抛高亮瓶';
+    if (zoom.type === 'streak') progress = Math.max(0, streak - zoom.startStreak) + '/' + zoom.target;
+    else progress = zoom.current + '/' + zoom.target;
     ui.save();
-    ui.font = 'bold 16px ' + PIXEL_FONT;
+    ui.font = 'bold 18px ' + PIXEL_FONT;
     ui.textAlign = 'left';
-    const w = ui.measureText(txt).width + 36;
+    ui.textBaseline = 'middle';
+    const iconSize = 26, gap = 10, padX = 16, barH = 40;
+    const zoomW = ui.measureText('ZOOM').width;
+    const tw = ui.measureText(progress).width;
+    const w = padX * 2 + zoomW + gap + iconSize + gap + tw;
     const x0 = (CONFIG.worldW - w) / 2;
-    roundRect(ui, x0, 12, w, 34, 17);
-    ui.fillStyle = 'rgba(30,18,50,0.7)';
+    const y0 = 12;
+    roundRect(ui, x0, y0, w, barH, 20);
+    ui.fillStyle = 'rgba(30,18,50,0.72)';
     ui.fill();
-    ui.strokeStyle = 'rgba(199,146,234,0.8)';
+    ui.strokeStyle = 'rgba(199,146,234,0.85)';
     ui.lineWidth = 1.5;
     ui.stroke();
-    pixelCanvas(ui, 'sparkle', x0 + 16, 20, 18);
+    // "ZOOM" 标识(紫色)
     ui.fillStyle = '#c792ea';
-    ui.fillText(txt, x0 + 18 + 22, 34);
+    ui.fillText('ZOOM', x0 + padX, y0 + barH / 2 + 1);
+    // 目标图标(fire=连击挑战 / updown=倒立挑战)
+    pixelCanvas(ui, zoom.icon, x0 + padX + zoomW + gap, y0 + (barH - iconSize) / 2, iconSize);
+    // 进度数字(当前/目标)
+    ui.fillStyle = '#c792ea';
+    ui.fillText(progress, x0 + padX + zoomW + gap + iconSize + gap, y0 + barH / 2 + 1);
     ui.restore();
   }
 
@@ -2651,45 +2799,58 @@
 
   // 正在蓄力瓶子的高亮提示
   // 蓄力条(底部居中): 绿色=直立区间, 金色=倒立区间, 白色指针来回摆动
+  // 绘制在显示层(ui): Zoom 暗幕压不住, 保持正常亮度; Zoom 内带呼吸边缘光, 出 Zoom 还原普通边框
   function drawChargeBar() {
     const barX = 150, barY = 585, barW = 600, barH = 16;
     const r = effectiveRanges();
     const px = (v) => barX + v * barW;
 
-    ctx.save();
+    ui.save();
     // 底板
-    roundRect(ctx, barX - 6, barY - 6, barW + 12, barH + 12, 10);
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    roundRect(ui, barX - 6, barY - 6, barW + 12, barH + 12, 10);
+    ui.fillStyle = 'rgba(0,0,0,0.55)';
+    ui.fill();
+    // 边框: Zoom 内=呼吸边缘光(淡青白, 强调专注操作), 出 Zoom 还原普通白边框
+    if (zoom) {
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 200);
+      ui.shadowColor = 'rgba(140,210,255,' + (0.6 + 0.4 * pulse).toFixed(3) + ')';
+      ui.shadowBlur = 12 + 8 * pulse;
+      ui.strokeStyle = 'rgba(200,235,255,' + (0.7 + 0.3 * pulse).toFixed(3) + ')';
+      ui.lineWidth = 2;
+      ui.stroke();
+      ui.shadowBlur = 0;
+      ui.shadowColor = 'transparent';
+    } else {
+      ui.strokeStyle = 'rgba(255,255,255,0.15)';
+      ui.lineWidth = 1;
+      ui.stroke();
+    }
 
     // 直立区间(绿)
     const ux0 = px(r.upright.center - r.upright.half);
     const ux1 = px(r.upright.center + r.upright.half);
-    ctx.fillStyle = 'rgba(82,224,124,0.55)';
-    ctx.fillRect(ux0, barY, ux1 - ux0, barH);
+    ui.fillStyle = 'rgba(82,224,124,0.55)';
+    ui.fillRect(ux0, barY, ux1 - ux0, barH);
 
     // 倒立区间(金)
     const ix0 = px(r.inverted.center - r.inverted.half);
     const ix1 = px(r.inverted.center + r.inverted.half);
-    ctx.fillStyle = 'rgba(255,200,87,0.65)';
-    ctx.fillRect(ix0, barY, ix1 - ix0, barH);
+    ui.fillStyle = 'rgba(255,200,87,0.65)';
+    ui.fillRect(ix0, barY, ix1 - ix0, barH);
 
     // 指针(三角 + 竖线)
     const cp = chargePointer(chargePhase);
     const cx = px(cp);
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.moveTo(cx, barY - 6);
-    ctx.lineTo(cx - 7, barY - 18);
-    ctx.lineTo(cx + 7, barY - 18);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.92)';
-    ctx.fillRect(cx - 1.5, barY - 4, 3, barH + 8);
-    ctx.restore();
+    ui.fillStyle = '#ffffff';
+    ui.beginPath();
+    ui.moveTo(cx, barY - 6);
+    ui.lineTo(cx - 7, barY - 18);
+    ui.lineTo(cx + 7, barY - 18);
+    ui.closePath();
+    ui.fill();
+    ui.fillStyle = 'rgba(255,255,255,0.92)';
+    ui.fillRect(cx - 1.5, barY - 4, 3, barH + 8);
+    ui.restore();
   }
 
   // 蓄力条区间标签(绘制到显示层, 原生分辨率清晰文字)
@@ -2742,6 +2903,24 @@
   }
   // 当前占用格子数(仅 state==='grid' 的掉落占格)
   function gridDropCount() { return drops.filter(d => d.state === 'grid').length; }
+
+  // Zoom 挑战成功奖励: 通过掉落机制发放(落目标瓶附近, 进格子/过期逻辑与普通掉落一致)
+  function spawnZoomDrop(amount, wx, wy) {
+    const ev = CONFIG.event;
+    // 目标瓶附近随机落点(略偏移, 不盖住瓶子)
+    const nx = Math.max(CONFIG.minGap, Math.min(CONFIG.table.w - CONFIG.minGap, wx + (Math.random() * 2 - 1) * 60));
+    const ny = Math.max(CONFIG.minGap, Math.min(CONFIG.table.d - CONFIG.minGap, wy + (Math.random() * 2 - 1) * 40));
+    const p = project(nx, ny, 0);
+    const full = gridDropCount() >= harvestSlotCount();
+    drops.push({
+      id: ++dropIdSeq, kind: 'caps', itemId: '', amount,
+      wx: nx, wy: ny, x: p.x, y: p.y,
+      state: full ? 'expiring' : 'grid',
+      t0: performance.now(),
+      expireAt: performance.now() + ev.expireMs,
+    });
+    Sound.coinDing();
+  }
 
   // 生成一个掉落物(随机种类: 瓶盖/玻璃瓶/锤子, 受科技解锁限制)
   function spawnDrop() {
@@ -2802,6 +2981,7 @@
     if (idx < 0) return;
     if (d.kind === 'caps') {
       caps += d.amount; scoreDisplay = caps;
+      stats.earned += d.amount;   // 掉落瓶盖计入累计赚取(Zoom 奖励/普通掉落)
       addFloatText(d.x, d.y - 20, '+' + d.amount, '#ffd166', 'coin');
       if (caps > best) best = caps;
     } else if (d.kind === 'bottle') {
@@ -2860,21 +3040,28 @@
   }
   function tryTriggerZoom() {
     if (zoom || Math.random() >= zoomChance()) return;
-    // 选一个非冷却、非飞行、非平躺的瓶子作为 Zoom 目标瓶
-    const candidates = bottles.filter(b => !b.cooling && !b.flying && b.state !== 'lying');
+    // 选一个非飞行、非平躺的瓶子作为 Zoom 目标瓶(冷却中的也可以, 进入 Zoom 会解除其冷却)
+    const candidates = bottles.filter(b => !b.flying && b.state !== 'lying');
     if (!candidates.length) return;
     const b = candidates[(Math.random() * candidates.length) | 0];
+    // Zoom 目标瓶无冷却: 解除其冷却(手动抛完的瓶子落地即冷却, 需在此清除才能连续挑战)
+    b.cooling = false;
+    b.coolUntil = 0;
     // 随机挑战目标: 连击+20(×2) / 连续倒立3(×5) / 连续倒立5(×10)
     const targets = [
-      { type: 'streak', target: 20, mult: 2,  label: '连击 +20' },
-      { type: 'invert', target: 3,  mult: 5,  label: '连续倒立 ×3' },
-      { type: 'invert', target: 5,  mult: 10, label: '连续倒立 ×5' },
+      { type: 'streak', target: 20, mult: 2,  icon: 'fire' },
+      { type: 'invert', target: 3,  mult: 5,  icon: 'updown' },
+      { type: 'invert', target: 5,  mult: 10, icon: 'updown' },
     ];
     const t = targets[(Math.random() * targets.length) | 0];
-    zoom = { bottle: b, type: t.type, target: t.target, mult: t.mult, label: t.label, current: 0, startStreak: streak };
+    zoom = { bottle: b, type: t.type, target: t.target, mult: t.mult, icon: t.icon, current: 0, startStreak: streak };
     b.zoomFocus = true;
-    // 提示进入 Zoom
-    addFloatText(b.x === undefined ? 0 : project(b.wx, b.wy, 0).x, project(b.wx, b.wy, 0).y - 160, 'ZOOM! ' + t.label, '#c792ea', 'sparkle');
+    // 进入过渡: 暗幕淡入(350ms), 光洞从大到小聚焦
+    const fp0 = project(b.wx, b.wy, 0);
+    zoomFx = { phase: 'in', t0: performance.now(), dur: 350, cx: fp0.x, cy: fp0.y - HALF_H * 1.18 * BOTTLE_SCALE };
+    Music.setZoomActive(true);   // 音乐切换紧张段
+    // 提示进入 Zoom: 图标表示目标 + 数字表示目标量, 避免文字
+    addFloatText(project(b.wx, b.wy, 0).x, project(b.wx, b.wy, 0).y - 160, '' + t.target, '#c792ea', t.icon);
     Sound.golden();
   }
   // Zoom 抛瓶结果判定(在 settleResult 内调用)
@@ -2895,16 +3082,22 @@
     let gained = 0;
     if (success) {
       gained = baseReward * zoom.mult;
-      caps += gained; scoreDisplay = caps; stats.earned += gained;
-      if (caps > best) best = caps;
-      addFloatText(project(b.wx, b.wy, 0).x, project(b.wx, b.wy, 0).y - 200, 'ZOOM 成功! +' + gained, '#c792ea', 'sparkle');
+      spawnZoomDrop(gained, b.wx, b.wy);   // 奖励通过掉落机制发放(玩家手动拾取或自动收获)
+      spawnZoomResult(true, project(b.wx, b.wy, 0));   // 成功特效: 紫环+星光+绿闪
+      addFloatText(project(b.wx, b.wy, 0).x, project(b.wx, b.wy, 0).y - 200, '+' + gained, '#c792ea', zoom.icon);
       Sound.achievement();
     } else {
-      addFloatText(project(b.wx, b.wy, 0).x, project(b.wx, b.wy, 0).y - 200, 'ZOOM 失败', '#ff6b6b', null);
+      spawnZoomResult(false, project(b.wx, b.wy, 0));   // 失败特效: 红环+红闪+屏幕抖动
+      // 失败: 红色目标图标飘出(无文字), 靠下坠音 + 音乐恢复 + 暗幕消失传达失败
+      addFloatText(project(b.wx, b.wy, 0).x, project(b.wx, b.wy, 0).y - 200, '0', '#ff6b6b', zoom.icon);
       Sound.streakBreak(streak);
     }
     if (b) b.zoomFocus = false;
+    // 退出过渡: 暗幕淡出(300ms), 光洞从小到大扩散; 先缓存坐标再清 zoom
+    const fpo = project(b.wx, b.wy, 0);
+    zoomFx = { phase: 'out', t0: performance.now(), dur: 300, cx: fpo.x, cy: fpo.y - HALF_H * 1.18 * BOTTLE_SCALE };
     zoom = null;
+    Music.setZoomActive(false);   // 音乐恢复正常段
     updateHUD(); renderPanel(); saveState();
   }
   // Zoom 内瓶子筛选(只抛 zoom 瓶; 其他瓶不可选中、手暂停)

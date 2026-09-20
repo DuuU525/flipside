@@ -183,6 +183,18 @@
       },
       purchase()    { tone(520, 0.09, 'square', 0.10); tone(780, 0.14, 'square', 0.10, 0.06); },
       achievement() { [659, 784, 988, 1319].forEach((f, i) => tone(f, 0.22, 'triangle', 0.14, i * 0.09)); },
+      // 掉落物入格: 飞行"咻"(高频下滑) + 落格"哒"(短促中频敲击)
+      dropIn() {
+        if (!throttled('dropIn', 80)) return;
+        tone(1600, 0.12, 'sine', 0.07, 0, 700);      // 飞行下坠"咻"
+        tone(880, 0.06, 'triangle', 0.09, 0.14);      // 落格"哒"
+      },
+      // 掉落物收获: 亮丽上行琶音 + 高八度收尾(比 purchase 更爽)
+      harvest() {
+        if (!throttled('harvest', 60)) return;
+        [523, 659, 784, 1046].forEach((f, i) => tone(f, 0.12, 'triangle', 0.12, i * 0.05));
+        tone(1568, 0.16, 'sine', 0.08, 0.22);         // 高八度延音尾
+      },
     };
   })();
 

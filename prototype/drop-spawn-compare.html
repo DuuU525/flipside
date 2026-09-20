@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>掉落物出现动画 · 方案对比</title>
+<style>
+  :root { --fg:#e6edf7; --muted:#8b98ad; --border:#2a3550; --card:#121b2e; --accent:#ffd166; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#0a0f1c; color:var(--fg); font-family:'Courier New','SimSun',monospace; padding:20px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:12px; margin-bottom:16px; }
+  .row { display:flex; gap:16px; flex-wrap:wrap; }
+  .card { background:var(--card); border:1px solid var(--border); padding:12px; }
+  .card h2 { font-size:14px; margin:0 0 2px; color:var(--accent); }
+  .card p { font-size:11px; color:var(--muted); margin:0 0 8px; line-height:1.5; }
+  canvas { display:block; image-rendering:pixelated; }
+</style>
+</head>
+<body>
+  <h1>掉落物出现动画 · 方案对比</h1>
+  <div class="sub">同一个场景：掉落物从「出现」到「落定桌面」。看哪个出现方式最有感觉。</div>
+  <div class="row">
+    <div class="card">
+      <h2>A · 从天而降（当前）</h2>
+      <p>屏幕上沿 → 桌面，加速下落 + 落地弹</p>
+      <canvas id="a" width="260" height="300"></canvas>
+    </div>
+    <div class="card">
+      <h2>B · 桌面冒出</h2>
+      <p>从落点钻出，先小后大 + 上弹回弹（蘑菇/地鼠式）</p>
+      <canvas id="b" width="260" height="300"></canvas>
+    </div>
+    <div class="card">
+      <h2>C · 星光凝聚</h2>
+      <p>落点粒子汇聚成图标（抽卡/合成式出场）</p>
+      <canvas id="c" width="260" height="300"></canvas>
+    </div>
+    <div class="card">
+      <h2>D · 旋转坠入</h2>
+      <p>带旋转的弧线下落（瓶盖旋转式）</p>
+      <canvas id="d" width="260" height="300"></canvas>
+    </div>
+  </div>
+  <script>
+  const W = 260, H = 300;
+  // 桌面（简化）
+  function drawDesk(c) {
+    c.fillStyle = '#0d1524'; c.fillRect(0,0,W,H);
+    const g = c.createLinearGradient(0,90,0,H-30);
+    g.addColorStop(0,'#1f3d63'); g.addColorStop(1,'#0c1e38');
+    c.fillStyle = g;
+    c.beginPath();
+    c.moveTo(20,110); c.lineTo(W-20,110); c.lineTo(W-4,H-30); c.lineTo(4,H-30); c.closePath(); c.fill();
+    c.fillStyle = '#081527'; c.fillRect(4,H-30,W-8,26);
+  }
+  // 瓶盖图标（简化金色圆 + 锯齿边）
+  function drawCap(c, x, y, s, alpha, rot) {
+    c.save();
+    c.globalAlpha = alpha;
+    c.translate(x, y);
+    c.scale(s, s);
+    if (rot) c.rotate(rot);
+    // 光晕
+    c.shadowColor = 'rgba(255,209,102,0.7)'; c.shadowBlur = 12;
+    c.fillStyle = '#ffd166';
+    c.beginPath(); c.arc(0,0,14,0,Math.PI*2); c.fill();
+    c.strokeStyle = '#e8890c'; c.lineWidth = 2; c.stroke();
+    // 锯齿边（8 个齿）
+    c.fillStyle = '#e8890c';
+    for (let i=0;i<8;i++) {
+      const a = i/8*Math.PI*2;
+      c.beginPath();
+      c.arc(Math.cos(a)*14, Math.sin(a)*14, 3, 0, Math.PI*2);
+      c.fill();
+    }
+    // 中心压痕
+    c.fillStyle = '#e8890c';
+    c.beginPath(); c.arc(0,0,6,0,Math.PI*2); c.fill();
+    c.restore();
+  }
+  const cx = W/2, groundY = 210;  // 落点
+  const startY = -20;
+
+  // 帧循环
+  function anim(cv, fn, period) {
+    const c = cv.getContext('2d');
+    let t0 = performance.now();
+    (function loop(now) {
+      const t = ((now - t0) % period) / period;
+      c.setTransform(1,0,0,1,0,0);
+      drawDesk(c);
+      fn(c, t);
+      requestAnimationFrame(loop);
+    })(t0);
+  }
+
+  // A 从天而降
+  anim(document.getElementById('a'), (c,t) => {
+    const e = t*t;                       // 加速下落
+    let y = startY + (groundY - startY) * e;
+    let s = 0.5 + 0.5*Math.min(1,t*2);
+    // 落地弹(后段)
+    if (t > 0.75) {
+      const tt = (t-0.75)/0.25;
+      y = groundY - Math.abs(Math.sin(tt*Math.PI*2))*8*(1-tt);
+    }
+    drawCap(c, cx, y, s, 1);
+  }, 1800);
+
+  // B 桌面冒出
+  anim(document.getElementById('b'), (c,t) => {
+    let y = groundY, s = 1, alpha = 1;
+    const rise = 0.5, bounce = 0.3;
+    if (t < rise) {
+      const tt = t/rise;
+      y = groundY - tt*40;                // 从桌面钻出上升
+      s = 0.2 + 0.8*tt;                   // 先小后大
+      alpha = tt;
+    } else if (t < rise+bounce) {
+      const tt = (t-rise)/bounce;
+      y = groundY - 40 + Math.abs(Math.sin(tt*Math.PI*2))*14*(1-tt)*2;  // 回弹
+      s = 1 - 0.1*Math.sin(tt*Math.PI);
+    } else {
+      y = groundY - 40;
+    }
+    drawCap(c, cx, y, s, alpha);
+  }, 1600);
+
+  // C 星光凝聚
+  anim(document.getElementById('c'), (c,t) => {
+    const N = 14;
+    const gather = 0.6;
+    if (t < gather) {
+      // 粒子从四周汇聚
+      const tt = t/gather;
+      for (let i=0;i<N;i++) {
+        const a = i/N*Math.PI*2 + t*2;
+        const dist = 60*(1-tt) + 4;
+        const px = cx + Math.cos(a)*dist;
+        const py = groundY - 40 + Math.sin(a)*dist;
+        c.save();
+        c.globalAlpha = 0.5 + 0.5*tt;
+        c.fillStyle = '#ffd166';
+        c.shadowColor = '#ffd166'; c.shadowBlur = 6;
+        c.beginPath(); c.arc(px, py, 3*(1-tt*0.5), 0, Math.PI*2); c.fill();
+        c.restore();
+      }
+      // 中心图标渐显
+      drawCap(c, cx, groundY-40, 0.3+0.7*tt, tt);
+    } else {
+      const tt = (t-gather)/(1-gather);
+      // 闪光爆一下
+      if (tt < 0.15) {
+        c.save(); c.globalAlpha = 1-tt/0.15;
+        c.fillStyle = '#fff'; c.shadowColor = '#ffd166'; c.shadowBlur = 20;
+        c.beginPath(); c.arc(cx, groundY-40, 30*tt, 0, Math.PI*2); c.fill();
+        c.restore();
+      }
+      drawCap(c, cx, groundY-40, 1 - 0.1*Math.sin(tt*Math.PI), 1);
+    }
+  }, 1800);
+
+  // D 旋转坠入
+  anim(document.getElementById('d'), (c,t) => {
+    const e = t*t;
+    const y = startY + (groundY - startY) * e;
+    const rot = t * Math.PI * 3;         // 旋转 1.5 圈
+    const s = 0.6 + 0.4*Math.min(1,t*2);
+    let yy = y;
+    if (t > 0.75) {
+      const tt = (t-0.75)/0.25;
+      yy = groundY - Math.abs(Math.sin(tt*Math.PI*2))*8*(1-tt);
+    }
+    drawCap(c, cx, yy, s, 1, rot);
+  }, 1800);
+  </script>
+</body>
+</html>

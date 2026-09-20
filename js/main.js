@@ -1872,7 +1872,7 @@
     const st = techNodeState(node);
     const lv = techLevel(node.id);
     if (st === 'locked') { Sound.fail(); notifyTip('lock', '前置科技未解锁'); return; }
-    if (st === 'poor') { Sound.fail(); notifyTip('coin', '瓶盖不足'); return; }
+    if (st === 'poor') { Sound.fail(); notifyTip('cap', '瓶盖不足'); return; }
     if (st === 'unlocked') {
       notifyTip(node.maxLevel ? 'star' : 'check', node.maxLevel ? '已满级 Lv.' + lv : '已解锁');
       return;
@@ -2903,55 +2903,90 @@
   }
   // 当前占用格子数(仅 state==='grid' 的掉落占格)
   function gridDropCount() { return drops.filter(d => d.state === 'grid').length; }
-
-  // Zoom 挑战成功奖励: 通过掉落机制发放(落目标瓶附近, 进格子/过期逻辑与普通掉落一致)
-  function spawnZoomDrop(amount, wx, wy) {
+  // 第 i 个收获格子的中心坐标(左上角横排, 紧挨桌子后缘)
+  function harvestSlotPos(i) {
+    const cell = 38, gap = 8;
+    const tableTopY = CONFIG.iso.oy - (CONFIG.table.d / 2) * ISO_SIN;   // 桌子后缘 y≈103
+    const y = tableTopY - cell / 2 - 6;                                  // 格子底边紧贴桌子后缘(留 6px)
+    const x0 = 16 + cell / 2;
+    return { x: x0 + i * (cell + gap), y };
+  }
+  // 第一个空收获格子索引; 无空位返回 -1
+  function nextFreeSlot() {
+    const n = harvestSlotCount();
+    const used = new Set(drops.filter(d => d.state === 'grid').map(d => d.slot));
+    for (let i = 0; i < n; i++) if (!used.has(i)) return i;
+    return -1;
+  }
+  // 掉落物稀有度(按价值分档, 用于光效区分)
+  function dropRarity(d) {
+    if (d.kind === 'caps') return 'gold';                       // 瓶盖=金色
+    if (d.kind === 'bottle') {
+      if (d.itemId === 'jadeBottle') return 'rare';             // 翡翠瓶=稀有
+      if (d.itemId === 'specialBottle') return 'gold';          // 黄金瓶=高级
+      return 'common';                                           // 玻璃瓶=普通
+    }
+    if (d.itemId === 'jadeHammer') return 'rare';               // 翡翠锤=稀有
+    if (d.itemId === 'goldHammer') return 'gold';               // 黄金锤=高级
+    return 'common';                                             // 玻璃锤=普通
+  }
+  // 掉落物出现时长(普通冒出 360ms / 稀有星光凝聚 700ms)
+  function dropSpawnDur(d) { return dropRarity(d) === 'rare' ? 700 : 360; }
+  // 统一创建掉落物: 先从天而降落桌面, 有空格子再飞入格子; 格子满→停在桌面过期
+  function addDrop(kind, itemId, amount, wx, wy) {
     const ev = CONFIG.event;
-    // 目标瓶附近随机落点(略偏移, 不盖住瓶子)
-    const nx = Math.max(CONFIG.minGap, Math.min(CONFIG.table.w - CONFIG.minGap, wx + (Math.random() * 2 - 1) * 60));
-    const ny = Math.max(CONFIG.minGap, Math.min(CONFIG.table.d - CONFIG.minGap, wy + (Math.random() * 2 - 1) * 40));
-    const p = project(nx, ny, 0);
-    const full = gridDropCount() >= harvestSlotCount();
+    const slot = nextFreeSlot();
+    const p = project(wx, wy, 0);
+    let x, y, fromX = p.x, fromY = p.y;
+    if (slot >= 0) {
+      const gp = harvestSlotPos(slot);
+      x = gp.x; y = gp.y;
+      // 入格: 从桌面位置飞向格子, 记录飞行起点 + 播放入格音效
+      Sound.dropIn();
+    } else {
+      x = p.x; y = p.y;   // 过期: 停在桌面, 不飞行
+    }
     drops.push({
-      id: ++dropIdSeq, kind: 'caps', itemId: '', amount,
-      wx: nx, wy: ny, x: p.x, y: p.y,
-      state: full ? 'expiring' : 'grid',
+      id: ++dropIdSeq, kind, itemId, amount,
+      wx, wy, x, y, fromX, fromY,
+      state: slot >= 0 ? 'grid' : 'expiring',
+      slot,
       t0: performance.now(),
       expireAt: performance.now() + ev.expireMs,
     });
-    Sound.coinDing();
   }
 
-  // 生成一个掉落物(随机种类: 瓶盖/玻璃瓶/锤子, 受科技解锁限制)
+  // Zoom 挑战成功奖励: 通过掉落机制发放(进格子/过期逻辑与普通掉落一致)
+  function spawnZoomDrop(amount, wx, wy) {
+    // 目标瓶附近随机落点(略偏移, 不盖住瓶子)
+    const nx = Math.max(CONFIG.minGap, Math.min(CONFIG.table.w - CONFIG.minGap, wx + (Math.random() * 2 - 1) * 60));
+    const ny = Math.max(CONFIG.minGap, Math.min(CONFIG.table.d - CONFIG.minGap, wy + (Math.random() * 2 - 1) * 40));
+    addDrop('caps', '', amount, nx, ny);
+  }
+
+  // 生成一个掉落物(随机种类: 瓶盖/瓶子/锤子, 受科技解锁限制)
   function spawnDrop() {
-    const ev = CONFIG.event;
-    // 可掉落的种类: 瓶盖恒可; 玻璃瓶需 expand 解锁; 锤子需对应 hammer 解锁
+    // 可掉落的种类: 瓶盖恒可; 瓶子按科技解锁(玻璃/黄金/翡翠); 锤子按科技解锁
     const kinds = ['caps'];
-    if (techLevel('expand') > 0) kinds.push('bottle');
+    const bottleTypes = [];
+    if (techLevel('expand') > 0)    bottleTypes.push({ itemId: 'extraBottle',   type: 'glass' });
+    if (techLevel('special') > 0)   bottleTypes.push({ itemId: 'specialBottle', type: 'gold' });
+    if (techLevel('jadeCraft') > 0) bottleTypes.push({ itemId: 'jadeBottle',    type: 'jade' });
+    if (bottleTypes.length) kinds.push('bottle');
     const hammerKinds = [];
     if (techLevel('hammerGlass') > 0) hammerKinds.push('glassHammer');
     if (techLevel('hammerGold') > 0) hammerKinds.push('goldHammer');
     if (techLevel('hammerJade') > 0) hammerKinds.push('jadeHammer');
     if (hammerKinds.length) kinds.push('hammer');
     const kind = kinds[(Math.random() * kinds.length) | 0];
-    // 随机桌面位置
+    // 随机桌面位置(仅格子满进过期时用)
     const wx = CONFIG.minGap + Math.random() * (CONFIG.table.w - 2 * CONFIG.minGap);
     const wy = CONFIG.minGap + Math.random() * (CONFIG.table.d - 2 * CONFIG.minGap);
-    const p = project(wx, wy, 0);
     let amount = 0, itemId = '';
     if (kind === 'caps') amount = 10 + ((Math.random() * 40) | 0) * 5;   // 10~200 瓶盖
-    else if (kind === 'bottle') itemId = 'extraBottle';
+    else if (kind === 'bottle') itemId = bottleTypes[(Math.random() * bottleTypes.length) | 0].itemId;
     else itemId = hammerKinds[(Math.random() * hammerKinds.length) | 0];
-    // 格子满 → 过期状态; 否则进格子
-    const full = gridDropCount() >= harvestSlotCount();
-    drops.push({
-      id: ++dropIdSeq, kind, itemId, amount,
-      wx, wy, x: p.x, y: p.y,
-      state: full ? 'expiring' : 'grid',
-      t0: performance.now(),
-      expireAt: performance.now() + ev.expireMs,
-    });
-    Sound.coinDing();
+    addDrop(kind, itemId, amount, wx, wy);
   }
 
   // 事件更新: 时间通道判定 + 过期倒计时 + 自动收获
@@ -2982,17 +3017,39 @@
     if (d.kind === 'caps') {
       caps += d.amount; scoreDisplay = caps;
       stats.earned += d.amount;   // 掉落瓶盖计入累计赚取(Zoom 奖励/普通掉落)
-      addFloatText(d.x, d.y - 20, '+' + d.amount, '#ffd166', 'coin');
+      addFloatText(d.x, d.y - 20, '+' + d.amount, '#ffd166', 'cap');
       if (caps > best) best = caps;
     } else if (d.kind === 'bottle') {
-      spawnBottle('glass');
-      addFloatText(d.x, d.y - 20, '+玻璃瓶', '#bcd8f5', 'bottle');
+      // 瓶子按 itemId 映射类型(玻璃/黄金/翡翠), 掉落时已校验对应科技解锁
+      const type = d.itemId === 'specialBottle' ? 'gold' : d.itemId === 'jadeBottle' ? 'jade' : 'glass';
+      const bm = type === 'gold' ? { icon: 'bottleGold', color: '#ffd166', name: '黄金瓶' }
+              : type === 'jade' ? { icon: 'bottleJade', color: '#6ee7a0', name: '翡翠瓶' }
+              : { icon: 'bottle', color: '#bcd8f5', name: '玻璃瓶' };
+      spawnBottle(type);
+      addFloatText(d.x, d.y - 20, '+' + bm.name, bm.color, bm.icon);
     } else {
       itemsOwned[d.itemId] = (itemsOwned[d.itemId] || 0) + 1;
-      addFloatText(d.x, d.y - 20, '+锤子', '#ffc857', 'hammer');
+      // 锤子飘字图标/颜色按类型区分
+      const hm = d.itemId === 'goldHammer' ? { icon: 'hammerGold', color: '#ffd166', name: '黄金锤' }
+              : d.itemId === 'jadeHammer' ? { icon: 'hammerJade', color: '#6ee7a0', name: '翡翠锤' }
+              : { icon: 'hammerGlass', color: '#bcd8f5', name: '玻璃锤' };
+      addFloatText(d.x, d.y - 20, '+' + hm.name, hm.color, hm.icon);
+    }
+    // 收获特效: 金色小冲击波环 + 上升星光(从格子爆出)
+    const now = performance.now();
+    goldenFx.push({ type: 'ring', x: d.x, y: d.y, t0: now, r1: 40, dur: 240, w: 4, a: 0.85, color: '#ffd166' });
+    goldenFx.push({ type: 'ring', x: d.x, y: d.y, t0: now + 50, r1: 40, dur: 240, w: 2, a: 0.5, color: '#ffd166' });
+    for (let i = 0; i < 4; i++) {
+      goldenFx.push({
+        type: 'star', x: d.x + (Math.random() * 2 - 1) * 16, y: d.y,
+        vx: (Math.random() * 2 - 1) * 10, vy: -(14 + Math.random() * 18),
+        t0: now, dur: 600 + Math.random() * 300,
+        size: 2 + Math.random() * 2, rot: Math.random() * Math.PI * 2,
+        color: '#ffd166',
+      });
     }
     drops.splice(idx, 1);
-    Sound.purchase();
+    Sound.harvest();   // 收获音效(上行琶音)
     updateHUD();
     renderPanel();
     saveState();
@@ -3006,26 +3063,150 @@
     return null;
   }
 
-  // 绘制掉落物(瓶盖/瓶子/锤子图标 + 格子/过期视觉)
+  // 绘制掉落物 + 收获格子(左上角槽位; 格子里的掉落物长期保留手动拾取, 过期的落桌面闪烁)
   function drawDrops() {
+    // 动画时长(飞行/落格弹跳), 供格子状态切换与掉落物动画共用; 出现时长见 dropSpawnDur
+    const FLY = 380, BOUNCE = 200;
+    // 1) 先画收获格子槽位(固定 N 个框); 掉落物飞到后格子才切"有物"状态
+    const n = harvestSlotCount();
+    for (let i = 0; i < n; i++) {
+      const p = harvestSlotPos(i);
+      const cell = 38, half = cell / 2;
+      const now = performance.now();
+      // 有物 = 该格子的掉落物已落格(出现+飞行完成), 飞行途中格子保持空态
+      const filled = drops.some(d => d.state === 'grid' && d.slot === i && (now - d.t0) >= dropSpawnDur(d) + FLY);
+      ctx.save();
+      if (filled) {
+        // 有掉落物: 亮边框 + 淡紫底
+        roundRect(ctx, p.x - half, p.y - half, cell, cell, 8);
+        ctx.fillStyle = 'rgba(199,146,234,0.12)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(199,146,234,0.7)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      } else {
+        // 空格子: 暗底 + 虚线弱边框
+        roundRect(ctx, p.x - half, p.y - half, cell, cell, 8);
+        ctx.fillStyle = 'rgba(10,18,32,0.55)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+    // 2) 画掉落物图标
     for (const d of drops) {
       const now = performance.now();
-      let icon = 'coin';
-      if (d.kind === 'bottle') icon = 'bottle';
-      else if (d.kind === 'hammer') icon = 'hammer';
-      // 过期掉落: 闪烁 + 渐隐(最后 1/3)
+      // 图标按奖励类型区分: 瓶盖=瓶盖图标 / 玻璃/黄金/翡翠瓶 / 三种锤子各配色
+      let icon = 'cap';
+      if (d.kind === 'bottle') {
+        if (d.itemId === 'specialBottle') icon = 'bottleGold';
+        else if (d.itemId === 'jadeBottle') icon = 'bottleJade';
+        else icon = 'bottle';
+      }
+      else if (d.kind === 'hammer') {
+        if (d.itemId === 'goldHammer') icon = 'hammerGold';
+        else if (d.itemId === 'jadeHammer') icon = 'hammerJade';
+        else icon = 'hammerGlass';
+      }
+      // 过期掉落: 前段正常显示, 最后 3 秒才闪烁 + 渐隐
       let alpha = 1;
       if (d.state === 'expiring') {
-        const remain = (d.expireAt - now) / CONFIG.event.expireMs;
-        alpha = 0.6 + 0.4 * Math.sin(now / 120);
-        if (remain < 0.33) alpha *= Math.max(0.2, remain / 0.33);
+        const remainMs = d.expireAt - now;
+        if (remainMs < 3000) {                        // 仅剩 3 秒开始闪烁
+          const k = remainMs / 3000;
+          alpha = (0.5 + 0.5 * Math.sin(now / 90)) * Math.max(0.25, k);
+        }
       }
+      // 动画: ①出现(普通=桌面冒出 / 稀有=星光凝聚) → ②飞行(桌面→格子, 仅 grid) → ③落格弹跳(仅 grid)
+      const age = now - d.t0;
+      const SPAWN = dropSpawnDur(d);
+      const rarity = dropRarity(d);
+      let px = d.fromX, py = d.fromY, sc = 1;
+      let spawnAlpha = 1;
+      if (age < SPAWN) {
+        if (rarity === 'rare') {
+          // 稀有: 星光凝聚(粒子汇聚到落点 + 图标渐显)
+          const t = age / SPAWN;
+          const gather = Math.min(1, t / 0.72);          // 前 72% 汇聚
+          py = d.fromY;
+          sc = 0.3 + 0.7 * gather;
+          spawnAlpha = gather;
+          // 汇聚粒子: 12 粒从四周螺旋收缩到落点
+          const N = 12;
+          for (let i = 0; i < N; i++) {
+            const a = (i / N) * Math.PI * 2 + t * 3;
+            const dist = 52 * (1 - gather) + 3;
+            const sx = d.fromX + Math.cos(a) * dist;
+            const sy = d.fromY - 10 + Math.sin(a) * dist * 0.7;
+            const pa = 0.4 + 0.6 * gather;
+            ctx.save();
+            ctx.globalAlpha = pa;
+            ctx.fillStyle = '#6ee7a0';
+            ctx.shadowColor = '#6ee7a0'; ctx.shadowBlur = 6;
+            ctx.beginPath(); ctx.arc(sx, sy, 3 * (1 - gather * 0.4), 0, Math.PI * 2); ctx.fill();
+            ctx.restore();
+          }
+          // 凝聚完成瞬间闪光
+          if (t >= 0.72 && t < 0.85) {
+            const ft = (t - 0.72) / 0.13;
+            ctx.save();
+            ctx.globalAlpha = 1 - ft;
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = '#6ee7a0'; ctx.shadowBlur = 20;
+            ctx.beginPath(); ctx.arc(d.fromX, d.fromY - 10, 26 * ft, 0, Math.PI * 2); ctx.fill();
+            ctx.restore();
+          }
+        } else {
+          // 普通/高级: 桌面冒出(从落点钻出, 先小后大 + 上弹回弹)
+          const t = age / SPAWN;
+          if (t < 0.62) {
+            const tt = t / 0.62;
+            const e = tt * (2 - tt);                     // easeOut 钻出
+            py = d.fromY + 22 * (1 - e);                 // 从桌面下方钻出
+            sc = 0.2 + 0.8 * e;
+            spawnAlpha = Math.min(1, tt * 2);
+          } else {
+            const tt = (t - 0.62) / 0.38;
+            py = d.fromY - Math.abs(Math.sin(tt * Math.PI)) * 8 * (1 - tt);   // 回弹
+            sc = 1 - 0.1 * Math.sin(tt * Math.PI);
+          }
+        }
+      } else if (d.state === 'grid') {
+        // grid: 出现完成后 → ②飞行 → ③落格弹跳
+        if (age < SPAWN + FLY) {
+          const t = (age - SPAWN) / FLY;
+          const e = t * t * (3 - 2 * t);                // smoothstep 缓入缓出
+          px = d.fromX + (d.x - d.fromX) * e;
+          py = d.fromY + (d.y - d.fromY) * e - Math.sin(t * Math.PI) * 46;   // 抛物线弧
+          sc = 0.8 + 0.2 * Math.min(1, t * 3);
+        } else {
+          const t = (age - SPAWN - FLY) / BOUNCE;         // 落格弹跳
+          px = d.x;
+          if (t < 1) {
+            py = d.y - Math.abs(Math.sin(t * Math.PI * 2)) * 10 * (1 - t);
+            sc = 1 - 0.15 * Math.sin(t * Math.PI);
+          } else {
+            py = d.y;
+          }
+        }
+      } else {
+        // expiring: 出现完成后停在桌面
+        px = d.fromX;
+        py = d.fromY;
+      }
+      // 稀有度光效: 普通=蓝弱光 / 高级=金强光 / 稀有=绿强光+微闪烁
+      let glow, blur = 10;
+      if (rarity === 'rare') { glow = 'rgba(110,231,160,0.75)'; blur = 18; }
+      else if (rarity === 'gold') { glow = 'rgba(255,209,102,0.6)'; blur = 13; }
+      else { glow = 'rgba(143,208,255,0.45)'; blur = 8; }
       ctx.save();
-      ctx.globalAlpha = alpha;
-      // 光晕 + 图标
-      const glow = d.kind === 'caps' ? 'rgba(255,209,102,0.5)' : 'rgba(143,208,255,0.5)';
-      ctx.shadowColor = glow; ctx.shadowBlur = 10;
-      pixelCanvas(ctx, icon, d.x - 13, d.y - 13, 26);
+      ctx.globalAlpha = alpha * spawnAlpha;
+      ctx.translate(px, py);
+      ctx.scale(sc, sc);
+      ctx.shadowColor = glow; ctx.shadowBlur = blur;
+      pixelCanvas(ctx, icon, -13, -13, 26);
       ctx.restore();
     }
   }

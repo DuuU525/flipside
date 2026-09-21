@@ -2,7 +2,7 @@
   'use strict';
 
   // ============================ 游戏数据(来自 js/data.js) ============================
-  const { CONFIG, BOTTLE_TYPES, STREAK_FX, TECH_TREE, TECH_ROOT, ITEMS, ACHIEVEMENTS, MILESTONES, DAILY_POOL } = window.PB;
+  const { CONFIG, BOTTLE_TYPES, STREAK_FX, TECH_TREE, TECH_ROOT, ITEMS, CHEST_POOL, ACHIEVEMENTS, MILESTONES, DAILY_POOL } = window.PB;
   const streakFx = window.PB.streakFx;
 
   const ISO_SIN = Math.SQRT1_2; // sin45° ≈ 0.7071 (深度方向压缩)
@@ -139,7 +139,7 @@
 
   // ============================ 存档版本 ============================
   // 修改存档结构时 +1, 并在 loadState 的迁移分支里逐版本升级旧档
-  const SAVE_VERSION = 7;
+  const SAVE_VERSION = 8;
 
   // ============================ 状态 ============================
   let caps = 0, best = 0, streak = 0, attempts = 0;
@@ -173,6 +173,7 @@
   let spentTechPoints = 0;           // 累计已购买科技点总数(决定第 N 点价格, 上限 CONFIG.techPoints.max)
   let achieveGate = CONFIG.techPoints.achieveGate;   // 成就门槛开关(运行时, 默认读 CONFIG)
   let itemsOwned = {};               // id -> 已购买数量
+  let codex = { gold: 0, jade: 0, goldAt: 0, jadeAt: 0 };  // 图鉴: 累计开出稀有瓶数 + 首次开出时间戳
   let stats = { earned: 0, inverted: 0, specialHits: 0, maxStreak: 0, golden: 0, consecutiveLie: 0 };  // 累计统计
   let achievements = {};             // 已达成成就 id -> true
   let milestoneNotified = {};         // 已通知的里程碑 id -> true
@@ -282,10 +283,28 @@
           if (typeof parsed.achieveGate === 'boolean') achieveGate = parsed.achieveGate;
         } catch (e) {}
       }
+      // 存档迁移 v7 → v8: 特殊瓶子抽离科技树(黄金瓶/翡翠瓶/黄金锤/翡翠锤/黄金冷却/翡翠冷却 6 节点删除)
+      // ① 删除的节点若已解锁 → 退还其占点科技点; ② 已购黄金锤/翡翠锤道具 → 退还瓶盖; ③ 已购黄金瓶/翡翠瓶保留
+      // 注: 须在「读取科技点」之后执行, 否则退还的科技点会被覆盖
+      if (ver < 8) {
+        const removedNodes = { special: 2, jadeCraft: 2, hammerGold: 1, hammerJade: 1, cdGold: 1, cdJade: 1 };
+        let refund = 0;
+        for (const [id, pts] of Object.entries(removedNodes)) {
+          if ((techLevels[id] || 0) > 0) { refund += pts; delete techLevels[id]; }
+        }
+        if (refund > 0) { techPoints += refund; spentTechPoints -= refund; if (spentTechPoints < 0) spentTechPoints = 0; }
+        // 黄金锤/翡翠锤道具退还瓶盖(锤子删除, 已购的折现)
+        let hammerRefund = 0;
+        if ((itemsOwned.goldHammer || 0) > 0) { hammerRefund += itemsOwned.goldHammer * 75; delete itemsOwned.goldHammer; }
+        if ((itemsOwned.jadeHammer || 0) > 0) { hammerRefund += itemsOwned.jadeHammer * 150; delete itemsOwned.jadeHammer; }
+        if (hammerRefund > 0) { caps += hammerRefund; scoreDisplay = caps; }
+      }
       const s = localStorage.getItem('pbottle.stats');
       if (s) stats = Object.assign(stats, JSON.parse(s));
       const ach = localStorage.getItem('pbottle.achievements');
       if (ach) achievements = JSON.parse(ach) || {};
+      const cd = localStorage.getItem('pbottle.codex');
+      if (cd) codex = Object.assign(codex, JSON.parse(cd));
       const mn = localStorage.getItem('pbottle.milestones');
       if (mn) milestoneNotified = JSON.parse(mn) || {};
       const dv = localStorage.getItem('pbottle.daily');
@@ -339,6 +358,7 @@
       localStorage.setItem('pbottle.tech', JSON.stringify(techLevels));
       localStorage.setItem('pbottle.techPoints', JSON.stringify({ points: techPoints, spent: spentTechPoints, achieveGate: achieveGate }));
       localStorage.setItem('pbottle.items', JSON.stringify(itemsOwned));
+      localStorage.setItem('pbottle.codex', JSON.stringify(codex));
       localStorage.setItem('pbottle.stats', JSON.stringify(stats));
       localStorage.setItem('pbottle.achievements', JSON.stringify(achievements));
       localStorage.setItem('pbottle.milestones', JSON.stringify(milestoneNotified));
@@ -373,18 +393,16 @@
     saveState();
     return true;
   }
-  // 道具可购上限: 瓶子类由对应科技等级动态决定, 非瓶子类(手/锤子)读 item.max
+  // 道具可购上限: 玻璃瓶由科技等级动态决定, 非瓶子类(手/锤子/宝箱)读 item.max
   function itemCap(id) {
     if (id === 'extraBottle') return techLevel('expand') * CONFIG.expandPerLevel;
-    if (id === 'specialBottle') return techLevel('special') * CONFIG.specialPerLevel;
-    if (id === 'jadeBottle') return techLevel('jadeCraft') * CONFIG.jadePerLevel;
     const item = ITEMS.find(i => i.id === id);
     return (item && item.max) || 0;
   }
-  // 瓶子抛后冷却时长(ms): 按类型查冷却科技等级, 下限 cooldownMin
+  // 瓶子抛后冷却时长(ms): 玻璃瓶查冷却科技等级; 黄金/翡翠瓶无冷却科技(宝箱专属, 退化为基础冷却), 下限 cooldownMin
   function cooldownMs(type) {
-    const nodeId = type === 'gold' ? 'cdGold' : (type === 'jade' ? 'cdJade' : 'cdGlass');
-    return Math.max(CONFIG.cooldownMin, CONFIG.cooldownBase - techLevel(nodeId) * CONFIG.cooldownStep);
+    const nodeId = type === 'glass' ? 'cdGlass' : null;
+    return Math.max(CONFIG.cooldownMin, CONFIG.cooldownBase - (nodeId ? techLevel(nodeId) : 0) * CONFIG.cooldownStep);
   }
 
   // ============================ 瓶子模型 ============================
@@ -970,6 +988,7 @@
     techPoints = 0;
     spentTechPoints = 0;
     itemsOwned = {};
+    codex = { gold: 0, jade: 0, goldAt: 0, jadeAt: 0 };   // 图鉴随重新开始清空(全新游戏)
     stats = { earned: 0, inverted: 0, specialHits: 0, maxStreak: 0, golden: 0, consecutiveLie: 0 };
     achievements = {};
     milestoneNotified = {};
@@ -999,6 +1018,7 @@
       localStorage.removeItem('pbottle.panel');
       localStorage.removeItem('pbottle.tech');
       localStorage.removeItem('pbottle.items');
+      localStorage.removeItem('pbottle.codex');
       localStorage.removeItem('pbottle.stats');
       localStorage.removeItem('pbottle.achievements');
       localStorage.removeItem('pbottle.milestones');
@@ -1308,8 +1328,9 @@
   });
 
   function renderItems() {
-    // 只展示已通过科技解锁的道具, 未解锁的不显示
+    // 宝箱始终可买(无需科技); 其余道具只展示已通过科技解锁的
     const unlocked = ITEMS.filter(item => {
+      if (item.id === 'chest') return true;
       const tech = item.unlockTech
         ? TECH_TREE.find(t => t.id === item.unlockTech)
         : TECH_TREE.find(t => t.unlockItem === item.id);
@@ -1335,11 +1356,12 @@
         right = `<span class="card-actions">${useBtn}${buyBtn}</span>`;
       } else if (!item.repeatable && cnt > 0) {
         right = '<span class="tag tag-done">已购买</span>';
-      } else if (item.repeatable && cnt >= itemCap(item.id)) {
+      } else if (item.repeatable && item.id !== 'chest' && cnt >= itemCap(item.id)) {
         right = '<span class="tag tag-done">已满</span>';
       } else {
         const afford = caps >= item.cost;
-        right = `<button class="mini-btn${afford ? '' : ' unaffordable'}" data-action="item" data-id="${item.id}">购买 · ${pixelDigits(item.cost, 3)}</button>`;
+        const label = item.id === 'chest' ? '开箱' : '购买';
+        right = `<button class="mini-btn${afford ? '' : ' unaffordable'}" data-action="item" data-id="${item.id}">${label} · ${pixelDigits(item.cost, 3)}</button>`;
       }
       const ownedLabel = item.repeatable ? `<span class="count">×${cnt}</span>` : '';
       let desc = item.desc;
@@ -1365,6 +1387,7 @@
   // 道具页签红点: 存在已解锁购买权、且当前可购买(瓶盖足够 + 数量未满 + 桌面未满)的道具
   function hasItemAvailable() {
     return ITEMS.some(item => {
+      if (item.id === 'chest') return caps >= item.cost;        // 宝箱: 面板解锁即可, 瓶盖够就亮红点
       const tech = item.unlockTech
         ? TECH_TREE.find(t => t.id === item.unlockTech)
         : TECH_TREE.find(t => t.unlockItem === item.id);
@@ -1373,8 +1396,7 @@
       if (!item.repeatable && cnt > 0) return false;           // 一次性道具已购买
       if (item.repeatable && cnt >= itemCap(item.id)) return false;    // 可重复道具已买满
       // 瓶子类: 桌面已满时不可再买(与 buyItem 一致)
-      if ((item.id === 'extraBottle' || item.id === 'specialBottle' || item.id === 'jadeBottle')
-          && bottles.length >= currentMaxBottles()) return false;
+      if (item.id === 'extraBottle' && bottles.length >= currentMaxBottles()) return false;
       return caps >= item.cost;                                // 瓶盖足够
     });
   }
@@ -1408,8 +1430,8 @@
       case 'techCount':    return Object.values(techLevels).filter(lv => lv > 0).length;
       case 'handCount':    return owned('hand');
       case 'bottleCount':  return bottles.length;
-      case 'specialCount': return owned('specialBottle');
-      case 'jadeCount':    return owned('jadeBottle');
+      case 'codexGold':    return codex.gold;
+      case 'codexJade':    return codex.jade;
       case 'golden':       return stats.golden;
       case 'consecutiveLie': return stats.consecutiveLie;
       default:             return 0;
@@ -1580,6 +1602,27 @@
     return `<div class="ach-section-title">${pixelSvg('calendar', 16)} 每日目标</div>` + items;
   }
 
+  // 图鉴: 稀有瓶收集(黄金/翡翠, 宝箱开出; 灰显未收集/亮显已收集+首次时间+累计数)
+  function renderCodex() {
+    const items = [
+      { key: 'gold', icon: 'bottleGold', name: '黄金瓶', count: codex.gold, at: codex.goldAt, hint: '命中 ×2.5' },
+      { key: 'jade', icon: 'bottleJade', name: '翡翠瓶', count: codex.jade, at: codex.jadeAt, hint: '命中 ×5' },
+    ];
+    const cards = items.map(it => {
+      const got = it.count > 0;
+      const timeStr = got && it.at ? new Date(it.at).toLocaleDateString() : '';
+      return `<div class="ach-card${got ? ' got' : ''}">
+        <div class="ach-icon">${pixelSvg(it.icon, 26)}</div>
+        <div class="ach-body">
+          <div class="ach-name">${it.name}${got ? '<span class="tag tag-done">已收集</span>' : ''}</div>
+          <div class="ach-desc">${it.hint} · 累计开出 <b>${it.count}</b> 个${got ? ' · 首次 ' + timeStr : ''}</div>
+        </div>
+      </div>`;
+    }).join('');
+    const gotCount = items.filter(i => i.count > 0).length;
+    return '<div class="ach-header">图鉴 <span class="count">' + gotCount + '/2</span><span class="ach-bonus-hint">宝箱开出稀有瓶</span></div>' + cards;
+  }
+
   function renderAchievements() {
     const doneCount = achievementCount();
     const statRows = [
@@ -1615,7 +1658,7 @@
       </div>`;
     }).join('');
     const visibleTotal = ACHIEVEMENTS.filter(a => !a.hidden || achievements[a.id]).length;
-    tabAchievements.innerHTML = `<div class="ach-header">成就 <span class="count">${doneCount}/${visibleTotal}</span><span class="ach-bonus-hint">全局收益 +${Math.round(doneCount * CONFIG.achievementRewardPerAch * 100)}%</span></div>` + statsHtml + renderDaily() + milestonesHtml + cardsHtml;
+    tabAchievements.innerHTML = `<div class="ach-header">成就 <span class="count">${doneCount}/${visibleTotal}</span><span class="ach-bonus-hint">全局收益 +${Math.round(doneCount * CONFIG.achievementRewardPerAch * 100)}%</span></div>` + statsHtml + renderDaily() + milestonesHtml + renderCodex() + cardsHtml;
   }
 
   function renderPanel() {
@@ -1681,6 +1724,16 @@
   function buyItem(id) {
     const item = ITEMS.find(i => i.id === id);
     if (!item) return;
+    // 宝箱: 无需科技前置、无上限, 买即开箱
+    if (id === 'chest') {
+      if (!spendCaps(item.cost)) return;
+      openChest();
+      Sound.purchase();
+      renderPanel();
+      saveState();
+      checkAchievements();
+      return;
+    }
     const tech = item.unlockTech
       ? TECH_TREE.find(t => t.id === item.unlockTech)
       : TECH_TREE.find(t => t.unlockItem === id);
@@ -1689,20 +1742,34 @@
     if (!item.repeatable && cnt > 0) return;
     if (item.repeatable && cnt >= itemCap(item.id)) return;
     // 桌面已满时不允许再放置瓶子(避免白白扣费)
-    if ((id === 'extraBottle' || id === 'specialBottle' || id === 'jadeBottle') && bottles.length >= currentMaxBottles()) {
+    if (id === 'extraBottle' && bottles.length >= currentMaxBottles()) {
       flashInsufficient();
       return;
     }
     if (!spendCaps(item.cost)) return;
     itemsOwned[id] = cnt + 1;
     if (id === 'extraBottle') spawnBottle('glass');
-    if (id === 'specialBottle') spawnBottle('gold');
-    if (id === 'jadeBottle') spawnBottle('jade');
     if (id === 'hand') rebuildHands();
     Sound.purchase();
     renderPanel();
     saveState();
     checkAchievements();
+  }
+
+  // 开宝箱: 从 CHEST_POOL 按权重随机抽取, 结果进收获格子(不直接上桌)
+  function openChest() {
+    const total = CHEST_POOL.reduce((s, e) => s + e.weight, 0);
+    let r = Math.random() * total;
+    let pick = CHEST_POOL[CHEST_POOL.length - 1];
+    for (const e of CHEST_POOL) {
+      if (r < e.weight) { pick = e; break; }
+      r -= e.weight;
+    }
+    if (pick.kind === 'caps') {
+      addDrop('caps', '', pick.amount, 0, 0);
+    } else {
+      addDrop(pick.kind, pick.itemId, 0, 0, 0);
+    }
   }
 
   // ============================ 锤子(敲碎瓶子) ============================
@@ -2964,28 +3031,20 @@
     addDrop('caps', '', amount, nx, ny);
   }
 
-  // 生成一个掉落物(随机种类: 瓶盖/瓶子/锤子, 受科技解锁限制)
+  // 生成一个掉落物(随机种类: 瓶盖/玻璃瓶/玻璃锤, 受科技解锁限制; 稀有瓶只走宝箱)
   function spawnDrop() {
-    // 可掉落的种类: 瓶盖恒可; 瓶子按科技解锁(玻璃/黄金/翡翠); 锤子按科技解锁
+    // 可掉落的种类: 瓶盖恒可; 玻璃瓶需 expand 解锁; 玻璃锤需 hammerGlass 解锁
     const kinds = ['caps'];
-    const bottleTypes = [];
-    if (techLevel('expand') > 0)    bottleTypes.push({ itemId: 'extraBottle',   type: 'glass' });
-    if (techLevel('special') > 0)   bottleTypes.push({ itemId: 'specialBottle', type: 'gold' });
-    if (techLevel('jadeCraft') > 0) bottleTypes.push({ itemId: 'jadeBottle',    type: 'jade' });
-    if (bottleTypes.length) kinds.push('bottle');
-    const hammerKinds = [];
-    if (techLevel('hammerGlass') > 0) hammerKinds.push('glassHammer');
-    if (techLevel('hammerGold') > 0) hammerKinds.push('goldHammer');
-    if (techLevel('hammerJade') > 0) hammerKinds.push('jadeHammer');
-    if (hammerKinds.length) kinds.push('hammer');
+    if (techLevel('expand') > 0) kinds.push('bottle');
+    if (techLevel('hammerGlass') > 0) kinds.push('hammer');
     const kind = kinds[(Math.random() * kinds.length) | 0];
     // 随机桌面位置(仅格子满进过期时用)
     const wx = CONFIG.minGap + Math.random() * (CONFIG.table.w - 2 * CONFIG.minGap);
     const wy = CONFIG.minGap + Math.random() * (CONFIG.table.d - 2 * CONFIG.minGap);
     let amount = 0, itemId = '';
     if (kind === 'caps') amount = 10 + ((Math.random() * 40) | 0) * 5;   // 10~200 瓶盖
-    else if (kind === 'bottle') itemId = bottleTypes[(Math.random() * bottleTypes.length) | 0].itemId;
-    else itemId = hammerKinds[(Math.random() * hammerKinds.length) | 0];
+    else if (kind === 'bottle') itemId = 'extraBottle';
+    else itemId = 'glassHammer';
     addDrop(kind, itemId, amount, wx, wy);
   }
 
@@ -3020,20 +3079,24 @@
       addFloatText(d.x, d.y - 20, '+' + d.amount, '#ffd166', 'cap');
       if (caps > best) best = caps;
     } else if (d.kind === 'bottle') {
-      // 瓶子按 itemId 映射类型(玻璃/黄金/翡翠), 掉落时已校验对应科技解锁
+      // 瓶子按 itemId 映射类型(玻璃/黄金/翡翠); 稀有瓶(黄金/翡翠)开箱/掉落时记录图鉴
       const type = d.itemId === 'specialBottle' ? 'gold' : d.itemId === 'jadeBottle' ? 'jade' : 'glass';
       const bm = type === 'gold' ? { icon: 'bottleGold', color: '#ffd166', name: '黄金瓶' }
               : type === 'jade' ? { icon: 'bottleJade', color: '#6ee7a0', name: '翡翠瓶' }
               : { icon: 'bottle', color: '#bcd8f5', name: '玻璃瓶' };
       spawnBottle(type);
       addFloatText(d.x, d.y - 20, '+' + bm.name, bm.color, bm.icon);
+      // 稀有瓶首次开出: 记录图鉴
+      if (type === 'gold' || type === 'jade') {
+        const key = type === 'gold' ? 'gold' : 'jade';
+        if (codex[key] === 0) codex[type + 'At'] = Date.now();   // 首次开出时间
+        codex[key] += 1;
+        checkAchievements();   // 图鉴计数可能达成收藏家/翡翠收藏家成就
+      }
     } else {
       itemsOwned[d.itemId] = (itemsOwned[d.itemId] || 0) + 1;
-      // 锤子飘字图标/颜色按类型区分
-      const hm = d.itemId === 'goldHammer' ? { icon: 'hammerGold', color: '#ffd166', name: '黄金锤' }
-              : d.itemId === 'jadeHammer' ? { icon: 'hammerJade', color: '#6ee7a0', name: '翡翠锤' }
-              : { icon: 'hammerGlass', color: '#bcd8f5', name: '玻璃锤' };
-      addFloatText(d.x, d.y - 20, '+' + hm.name, hm.color, hm.icon);
+      // 玻璃锤(唯一锤子)
+      addFloatText(d.x, d.y - 20, '+玻璃锤', '#bcd8f5', 'hammerGlass');
     }
     // 收获特效: 金色小冲击波环 + 上升星光(从格子爆出)
     const now = performance.now();

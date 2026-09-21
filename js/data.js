@@ -120,9 +120,9 @@
     toastDuration: 2600,  // 成就达成通知停留时长(ms)
     achievementRewardPerAch: 0.02,  // 每个已达成成就使全局瓶盖收益 +2%
 
-    // 科技点经济(阶段一: 瓶盖兑换科技点, 通用池 60 上限, 节点占点解锁)
+    // 科技点经济(阶段一: 瓶盖兑换科技点, 通用池 52 上限, 节点占点解锁)
     techPoints: {
-      max: 60,            // 科技点上限(累计可购买)
+      max: 52,            // 科技点上限(累计可购买); 52 = 基建7 + 满方向35 + 另一方向基础10
       baseCost: 100,      // 第 1 个科技点价格(瓶盖)
       growth: 1.15,       // 每点价格几何递增(第 N 点 = baseCost × growth^(N-1))
       achieveGate: false, // 成就门槛开关(默认关): 开启后第 N 点需达成 ceil(N/5) 成就
@@ -199,18 +199,12 @@
   // side: 'infra'=中立基建(两方向共享) / 'A'=手动技巧方向 / 'B'=自动挂机方向
   // 对称: A满=35点(基础10+进阶25) = B满=35点; 基建15点; 60=基建15+满35+另一方向基础10
   const TECH_TREE = [
-    // ============ 中立基建 15 点(环绕腰部) ============
-    { id: 'branchBottle', name: '瓶子分支',   icon: 'bottle', points: 1, side: 'infra', prereq: null, desc: '开启瓶子分支',   detail: '开启瓶子分支：瓶子类型（黄金/翡翠）、对应锤子、桌面瓶子数量与上限。' },
+    // ============ 中立基建 7 点(环绕腰部; 只留玻璃体系) ============
+    { id: 'branchBottle', name: '瓶子分支',   icon: 'bottle', points: 1, side: 'infra', prereq: null, desc: '开启瓶子分支',   detail: '开启瓶子分支：玻璃瓶、对应锤子、桌面瓶子数量与上限。' },
     { id: 'expand',       name: '玻璃瓶',     icon: 'bottle', points: 2, side: 'infra', prereq: 'branchBottle', unlockItem: 'extraBottle', maxLevel: 5, desc: '玻璃瓶可购上限 20', detail: '解锁道具「玻璃瓶」购买权，可购上限 20 个。' },
-    { id: 'special',      name: '黄金瓶',     icon: 'bottleGold', points: 2, side: 'infra', prereq: 'expand',      unlockItem: 'specialBottle', maxLevel: 10, desc: '黄金瓶可购上限 20', detail: '解锁道具「黄金瓶」购买权（命中 ×2.5），可购上限 20 个。' },
     { id: 'expandCap',    name: '扩容工程',   icon: 'box', points: 2, side: 'infra', prereq: 'branchBottle', maxLevel: 6, desc: '桌面瓶子上限 +12', detail: '桌面瓶子数量上限 +12（共 20 个）。' },
-    { id: 'jadeCraft',    name: '翡翠瓶',     icon: 'bottleJade', points: 2, side: 'infra', prereq: 'special',      unlockItem: 'jadeBottle', maxLevel: 10, desc: '翡翠瓶可购上限 20', detail: '解锁道具「翡翠瓶」购买权（命中 ×5），可购上限 20 个。' },
     { id: 'hammerGlass',  name: '玻璃锤',     icon: 'hammer', points: 1, side: 'infra', prereq: 'expand',    maxLevel: 5, desc: '解锁玻璃锤 · 返还 96%', detail: '解锁道具页签的「玻璃锤」购买权，返还满级 96%。' },
-    { id: 'hammerGold',   name: '黄金锤',     icon: 'hammer', points: 1, side: 'infra', prereq: 'special',   maxLevel: 5, desc: '解锁黄金锤 · 返还 96%', detail: '解锁道具页签的「黄金锤」购买权，返还满级 96%。' },
-    { id: 'hammerJade',   name: '翡翠锤',     icon: 'hammer', points: 1, side: 'infra', prereq: 'jadeCraft', maxLevel: 5, desc: '解锁翡翠锤 · 返还 96%', detail: '解锁道具页签的「翡翠锤」购买权，返还满级 96%。' },
     { id: 'cdGlass',      name: '玻璃冷却',   icon: 'snow', points: 1, side: 'infra', prereq: 'expand',      maxLevel: 5, desc: '玻璃瓶冷却 -0.5s', detail: '玻璃瓶抛后冷却时间 -0.5 秒（2.0→1.5 秒）。' },
-    { id: 'cdGold',       name: '黄金冷却',   icon: 'snow', points: 1, side: 'infra', prereq: 'special',     maxLevel: 5, desc: '黄金瓶冷却 -0.5s', detail: '黄金瓶抛后冷却时间 -0.5 秒。' },
-    { id: 'cdJade',       name: '翡翠冷却',   icon: 'snow', points: 1, side: 'infra', prereq: 'jadeCraft',   maxLevel: 5, desc: '翡翠瓶冷却 -0.5s', detail: '翡翠瓶抛后冷却时间 -0.5 秒。' },
 
     // ============ 方向 A(倒立瓶 · 手动技巧) 35 点 = 基础10 + 进阶25 ============
     // 基础(4节点, 10点): 入口 + 稳定 + 平衡 + 连击入口
@@ -259,11 +253,17 @@
   const ITEMS = [
     { id: 'extraBottle', name: '玻璃瓶', cost: 25, repeatable: true, desc: '桌面增加 1 个玻璃瓶（买现成的）' },
     { id: 'hand',        name: '手',       cost: 60, repeatable: true, max: 8, desc: '自动抛空闲瓶子 · 每只手需要一个瓶子' },
-    { id: 'specialBottle', name: '黄金瓶', cost: 150, repeatable: true, desc: '桌面增加 1 个黄金瓶 · 命中奖励 ×2.5' },
-    { id: 'jadeBottle', name: '翡翠瓶', cost: 300, repeatable: true, desc: '桌面增加 1 个翡翠瓶 · 命中奖励 ×5' },
     { id: 'glassHammer', name: '玻璃锤', cost: 15,  repeatable: true, max: 99, unlockTech: 'hammerGlass', desc: '敲碎玻璃瓶时消耗 1 个 · 返还 60% 起' },
-    { id: 'goldHammer',  name: '黄金锤', cost: 75,  repeatable: true, max: 99, unlockTech: 'hammerGold',  desc: '敲碎黄金瓶时消耗 1 个 · 返还 60% 起' },
-    { id: 'jadeHammer',  name: '翡翠锤', cost: 150, repeatable: true, max: 99, unlockTech: 'hammerJade',  desc: '敲碎翡翠瓶时消耗 1 个 · 返还 60% 起' },
+    { id: 'chest',       name: '神秘宝箱', cost: 150, repeatable: true, desc: '随机开出玻璃瓶 / 瓶盖 / 黄金瓶 / 翡翠瓶' },
+  ];
+
+  // 宝箱奖池(特殊瓶子抽离科技树后, 通过宝箱随机开出)
+  const CHEST_POOL = [
+    { kind: 'bottle',   itemId: 'extraBottle', weight: 45 },   // 玻璃瓶(保底)
+    { kind: 'caps',     amount: 100,           weight: 20 },   // 瓶盖返还
+    { kind: 'hammer',   itemId: 'glassHammer', weight: 10 },   // 玻璃锤
+    { kind: 'bottle',   itemId: 'specialBottle', weight: 20 }, // 黄金瓶(稀有, 回本)
+    { kind: 'bottle',   itemId: 'jadeBottle',    weight: 5 },  // 翡翠瓶(极稀有, 大赚)
   ];
 
   // 成就(达成条件基于累计统计或当前状态)
@@ -282,11 +282,11 @@
     { id: 'earn20000',   name: '富可敌国',   desc: '累计获得 20000 瓶盖', icon: 'gem', type: 'earned',       target: 20000, reward: 1000 },
     { id: 'special10',   name: '特殊瓶专家', desc: '特殊瓶命中 10 次',    icon: 'sparkle', type: 'specialHits',  target: 10,    reward: 50 },
     { id: 'tech5',       name: '科技先驱',   desc: '解锁 5 个科技',       icon: 'flask', type: 'techCount',    target: 5,     reward: 50 },
-    { id: 'techAll',     name: '学富五车',   desc: '解锁全部 15 个科技', icon: 'grad', type: 'techCount',    target: 15,    reward: 400 },
+    { id: 'techAll',     name: '学富五车',   desc: '解锁全部 27 个科技', icon: 'grad', type: 'techCount',    target: 27,    reward: 400 },
     { id: 'hand8',       name: '八爪鱼',     desc: '拥有 8 只手',         icon: 'hand', type: 'handCount',    target: 8,     reward: 100 },
     { id: 'bottle8',     name: '瓶满为患',   desc: '桌面放满瓶子',         icon: 'bottle', type: 'bottleCount',  target: 8,     reward: 80 },
-    { id: 'special3',    name: '收藏家',     desc: '拥有 3 个黄金瓶',   icon: 'star', type: 'specialCount', target: 3,     reward: 100 },
-    { id: 'jade3',       name: '翡翠收藏家', desc: '拥有 3 个翡翠瓶',     icon: 'bottleJade', type: 'jadeCount',    target: 3,     reward: 150 },
+    { id: 'special3',    name: '收藏家',     desc: '累计开出 3 个黄金瓶', icon: 'star', type: 'codexGold',   target: 3,     reward: 100 },
+    { id: 'jade3',       name: '翡翠收藏家', desc: '累计开出 3 个翡翠瓶', icon: 'bottleJade', type: 'codexJade',    target: 3,     reward: 150 },
     // 隐藏成就(不在列表显示, 达成才揭晓): 金色瞬间彩蛋 + 幽默向
     { id: 'golden1',     name: '天降横财',   desc: '触发 1 次金色瞬间', icon: 'sparkle', type: 'golden',         target: 1,   reward: 50,  hidden: true },
     { id: 'golden10',    name: '金色眷顾',   desc: '触发 10 次金色瞬间', icon: 'crown', type: 'golden',         target: 10,  reward: 500, hidden: true },
@@ -319,6 +319,7 @@
   window.PB.TECH_TREE = TECH_TREE;
   window.PB.TECH_ROOT = TECH_ROOT;
   window.PB.ITEMS = ITEMS;
+  window.PB.CHEST_POOL = CHEST_POOL;
   window.PB.ACHIEVEMENTS = ACHIEVEMENTS;
   window.PB.MILESTONES = MILESTONES;
   window.PB.DAILY_POOL = DAILY_POOL;

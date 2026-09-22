@@ -139,7 +139,7 @@
 
   // ============================ 存档版本 ============================
   // 修改存档结构时 +1, 并在 loadState 的迁移分支里逐版本升级旧档
-  const SAVE_VERSION = 8;
+  const SAVE_VERSION = 9;
 
   // ============================ 状态 ============================
   let caps = 0, best = 0, streak = 0, attempts = 0;
@@ -173,7 +173,7 @@
   let spentTechPoints = 0;           // 累计已购买科技点总数(决定第 N 点价格, 上限 CONFIG.techPoints.max)
   let achieveGate = CONFIG.techPoints.achieveGate;   // 成就门槛开关(运行时, 默认读 CONFIG)
   let itemsOwned = {};               // id -> 已购买数量
-  let codex = { gold: 0, jade: 0, goldAt: 0, jadeAt: 0 };  // 图鉴: 累计开出稀有瓶数 + 首次开出时间戳
+  let codex = { glass: 0, gold: 0, jade: 0, glassAt: 0, goldAt: 0, jadeAt: 0 };  // 图鉴: 累计开出瓶子数 + 首次开出时间戳
   let stats = { earned: 0, inverted: 0, specialHits: 0, maxStreak: 0, golden: 0, consecutiveLie: 0 };  // 累计统计
   let achievements = {};             // 已达成成就 id -> true
   let milestoneNotified = {};         // 已通知的里程碑 id -> true
@@ -184,8 +184,8 @@
   let chargePhase = 0;               // 0~2 循环(ping-pong 往返)
   let invertedCenter = CONFIG.charge.invertedCenter;  // 手动蓄力时倒立区间中心(每次蓄力随机; 挂机用 CONFIG 固定值)
 
-  // 敲碎模式(锤子)
-  let hammerMode = null;             // 激活的锤子类型: 'glass' | 'gold' | 'jade' | null
+  // 敲碎模式(通用锤)
+  let hammerMode = false;            // 是否处于敲碎模式(通用锤, 砸任何瓶子)
 
   // 自动抛瓶(勤奋之手)
   let hands = [];                    // 手(勤奋之手)运行时对象: { wx, wy, state, target, t0, didHit, acc }(每只手独立计时)
@@ -305,6 +305,25 @@
       if (ach) achievements = JSON.parse(ach) || {};
       const cd = localStorage.getItem('pbottle.codex');
       if (cd) codex = Object.assign(codex, JSON.parse(cd));
+      // 存档迁移 v8 → v9: 玻璃瓶/玻璃锤/玻璃冷却 3 节点删除 → 通用锤/通用冷却; 瓶子解锁改走图鉴
+      // ① 删 expand/hammerGlass/cdGlass 节点退科技点; ② 玻璃锤道具退瓶盖; ③ 老档玻璃瓶图鉴默认解锁
+      if (ver < 9) {
+        const hadExpand = (techLevels.expand || 0) > 0;   // 老档是否解锁过玻璃瓶(expand)
+        const removedNodes = { expand: 2, hammerGlass: 1, cdGlass: 1 };
+        let refund = 0;
+        for (const [id, pts] of Object.entries(removedNodes)) {
+          if ((techLevels[id] || 0) > 0) { refund += pts; delete techLevels[id]; }
+        }
+        if (refund > 0) { techPoints += refund; spentTechPoints -= refund; if (spentTechPoints < 0) spentTechPoints = 0; }
+        // 玻璃锤 → 通用锤(已购玻璃锤折现退还 15 盖)
+        if ((itemsOwned.glassHammer || 0) > 0) {
+          caps += itemsOwned.glassHammer * 15;
+          scoreDisplay = caps;
+          delete itemsOwned.glassHammer;
+        }
+        // 老档已解锁玻璃瓶(expand) → 玻璃瓶图鉴默认解锁(否则老玩家失去购买权); 新档(ver=0)不触发
+        if (hadExpand && (codex.glass || 0) < 1) { codex.glass = 1; if (!codex.glassAt) codex.glassAt = Date.now(); }
+      }
       const mn = localStorage.getItem('pbottle.milestones');
       if (mn) milestoneNotified = JSON.parse(mn) || {};
       const dv = localStorage.getItem('pbottle.daily');
@@ -393,16 +412,15 @@
     saveState();
     return true;
   }
-  // 道具可购上限: 玻璃瓶由科技等级动态决定, 非瓶子类(手/锤子/宝箱)读 item.max
+  // 道具可购上限: 瓶子类由桌面总上限限制(无单独科技上限), 非瓶子类读 item.max
   function itemCap(id) {
-    if (id === 'extraBottle') return techLevel('expand') * CONFIG.expandPerLevel;
     const item = ITEMS.find(i => i.id === id);
+    if (item && item.codex) return Infinity;               // 瓶子类: 图鉴解锁后不限, 由桌面满限制
     return (item && item.max) || 0;
   }
-  // 瓶子抛后冷却时长(ms): 玻璃瓶查冷却科技等级; 黄金/翡翠瓶无冷却科技(宝箱专属, 退化为基础冷却), 下限 cooldownMin
+  // 瓶子抛后冷却时长(ms): 通用冷却科技影响所有类型瓶子, 下限 cooldownMin
   function cooldownMs(type) {
-    const nodeId = type === 'glass' ? 'cdGlass' : null;
-    return Math.max(CONFIG.cooldownMin, CONFIG.cooldownBase - (nodeId ? techLevel(nodeId) : 0) * CONFIG.cooldownStep);
+    return Math.max(CONFIG.cooldownMin, CONFIG.cooldownBase - techLevel('cooldown') * CONFIG.cooldownStep);
   }
 
   // ============================ 瓶子模型 ============================
@@ -908,17 +926,11 @@
     if (zoom && b && b !== zoom.bottle) { return; }
     if (zoom && !b) { return; }   // Zoom 内点空白不退出
     if (hammerMode) {
-      // 敲碎模式: 点瓶子敲碎对应类型, 点空白退出
+      // 敲碎模式: 点任意瓶子敲碎, 点空白退出
       if (b && !b.flying) {
-        if (b.type === hammerMode) {
-          smashBottle(b);
-        } else {
-          const pp = project(b.wx, b.wy, b.h);
-          addFloatText(pp.x, pp.y - 120, '需要用 ' + BOTTLE_TYPES[hammerMode].name + '锤', '#ff6b6b');
-          Sound.fail();
-        }
+        smashBottle(b);
       } else {
-        hammerMode = null;
+        hammerMode = false;
         renderPanel();
       }
       return;
@@ -964,6 +976,13 @@
     if (Music.isEnabled()) Music.start();   // 背景音乐随游戏开始播放
     overlay.classList.add('hidden');
     started = true;
+    // 教学宝箱: 玻璃瓶图鉴未解锁时, 开局掉一个玻璃瓶掉落物(教学解锁购买权)
+    if ((codex.glass || 0) === 0) {
+      const wx = CONFIG.minGap + Math.random() * (CONFIG.table.w - 2 * CONFIG.minGap);
+      const wy = CONFIG.minGap + Math.random() * (CONFIG.table.d - 2 * CONFIG.minGap);
+      addDrop('bottle', 'extraBottle', 0, wx, wy);
+      notifyTip('chest', '教学宝箱开出玻璃瓶 · 点击收获');
+    }
   });
 
   // ============================ 重新开始 ============================
@@ -988,7 +1007,7 @@
     techPoints = 0;
     spentTechPoints = 0;
     itemsOwned = {};
-    codex = { gold: 0, jade: 0, goldAt: 0, jadeAt: 0 };   // 图鉴随重新开始清空(全新游戏)
+    codex = { glass: 0, gold: 0, jade: 0, glassAt: 0, goldAt: 0, jadeAt: 0 };   // 图鉴随重新开始清空(全新游戏)
     stats = { earned: 0, inverted: 0, specialHits: 0, maxStreak: 0, golden: 0, consecutiveLie: 0 };
     achievements = {};
     milestoneNotified = {};
@@ -1327,27 +1346,28 @@
     if (card && !card.contains(e.relatedTarget)) hideTechTip();
   });
 
+  // 道具是否解锁: 瓶子类看图鉴(codex), 锤子/手看科技, 宝箱始终
+  function itemUnlocked(item) {
+    if (item.id === 'chest') return true;
+    if (item.codex) return (codex[item.codex] || 0) > 0;
+    if (item.unlockTech) return techLevel(item.unlockTech) > 0;
+    return false;
+  }
+
   function renderItems() {
-    // 宝箱始终可买(无需科技); 其余道具只展示已通过科技解锁的
-    const unlocked = ITEMS.filter(item => {
-      if (item.id === 'chest') return true;
-      const tech = item.unlockTech
-        ? TECH_TREE.find(t => t.id === item.unlockTech)
-        : TECH_TREE.find(t => t.unlockItem === item.id);
-      return tech && techLevel(tech.id) > 0;
-    });
+    // 宝箱始终可买; 瓶子类展示图鉴已解锁; 锤子/手展示科技已解锁
+    const unlocked = ITEMS.filter(item => itemUnlocked(item));
     if (unlocked.length === 0) {
       tabItems.innerHTML = '<div class="empty-tip">暂无道具 · 请先在科技树解锁</div>';
       return;
     }
     tabItems.innerHTML = unlocked.map(item => {
       const cnt = owned(item.id);
-      const isHammer = !!item.unlockTech;
+      const isHammer = item.id === 'hammer';
       let right;
       if (isHammer) {
-        // 锤子: 消耗品(可堆叠), 每次敲碎消耗 1 个; 有数量时显示「使用」+ 始终显示「购买」
-        const type = item.id.replace('Hammer', '');
-        const active = hammerMode === type;
+        // 通用锤: 消耗品(可堆叠), 每次敲碎消耗 1 个; 有数量时显示「使用」+ 始终显示「购买」
+        const active = hammerMode;
         const useBtn = cnt > 0
           ? `<button class="mini-btn${active ? ' active' : ''}" data-action="hammer" data-id="${item.id}">${active ? '敲碎中…' : '使用'}</button>`
           : '';
@@ -1370,7 +1390,7 @@
         const idleHint = cnt > bottles.length ? ' · 仅 ' + eff + ' 只在工作(瓶子不足)' : '';
         desc = '每只手每 ' + (perHandInterval() / 1000).toFixed(1) + ' 秒抛一次 · 独立计时' + idleHint;
       }
-      const activeCls = (isHammer && hammerMode === item.id.replace('Hammer', '')) ? ' active' : '';
+      const activeCls = (isHammer && hammerMode) ? ' active' : '';
       return `<div class="card${activeCls}">
         <div class="card-head"><span class="card-name">${item.name}${ownedLabel}</span>${right}</div>
         <div class="card-desc">${desc}</div>
@@ -1388,15 +1408,12 @@
   function hasItemAvailable() {
     return ITEMS.some(item => {
       if (item.id === 'chest') return caps >= item.cost;        // 宝箱: 面板解锁即可, 瓶盖够就亮红点
-      const tech = item.unlockTech
-        ? TECH_TREE.find(t => t.id === item.unlockTech)
-        : TECH_TREE.find(t => t.unlockItem === item.id);
-      if (!tech || techLevel(tech.id) <= 0) return false;      // 购买权未解锁
+      if (!itemUnlocked(item)) return false;                    // 瓶子看图鉴/锤手看科技
       const cnt = owned(item.id);
       if (!item.repeatable && cnt > 0) return false;           // 一次性道具已购买
       if (item.repeatable && cnt >= itemCap(item.id)) return false;    // 可重复道具已买满
       // 瓶子类: 桌面已满时不可再买(与 buyItem 一致)
-      if (item.id === 'extraBottle' && bottles.length >= currentMaxBottles()) return false;
+      if (item.codex && bottles.length >= currentMaxBottles()) return false;
       return caps >= item.cost;                                // 瓶盖足够
     });
   }
@@ -1602,11 +1619,12 @@
     return `<div class="ach-section-title">${pixelSvg('calendar', 16)} 每日目标</div>` + items;
   }
 
-  // 图鉴: 稀有瓶收集(黄金/翡翠, 宝箱开出; 灰显未收集/亮显已收集+首次时间+累计数)
+  // 图鉴: 瓶子收集(玻璃/黄金/翡翠, 图鉴解锁购买权; 灰显未收集/亮显已收集+首次时间+累计数)
   function renderCodex() {
     const items = [
-      { key: 'gold', icon: 'bottleGold', name: '黄金瓶', count: codex.gold, at: codex.goldAt, hint: '命中 ×2.5' },
-      { key: 'jade', icon: 'bottleJade', name: '翡翠瓶', count: codex.jade, at: codex.jadeAt, hint: '命中 ×5' },
+      { key: 'glass', icon: 'bottle',      name: '玻璃瓶', count: codex.glass, at: codex.glassAt, hint: '基础瓶 · 命中 ×1' },
+      { key: 'gold',  icon: 'bottleGold',  name: '黄金瓶', count: codex.gold,  at: codex.goldAt,  hint: '命中 ×2.5' },
+      { key: 'jade',  icon: 'bottleJade',  name: '翡翠瓶', count: codex.jade,  at: codex.jadeAt,  hint: '命中 ×5' },
     ];
     const cards = items.map(it => {
       const got = it.count > 0;
@@ -1620,7 +1638,7 @@
       </div>`;
     }).join('');
     const gotCount = items.filter(i => i.count > 0).length;
-    return '<div class="ach-header">图鉴 <span class="count">' + gotCount + '/2</span><span class="ach-bonus-hint">宝箱开出稀有瓶</span></div>' + cards;
+    return '<div class="ach-header">图鉴 <span class="count">' + gotCount + '/3</span><span class="ach-bonus-hint">首次开出解锁购买权</span></div>' + cards;
   }
 
   function renderAchievements() {
@@ -1724,7 +1742,7 @@
   function buyItem(id) {
     const item = ITEMS.find(i => i.id === id);
     if (!item) return;
-    // 宝箱: 无需科技前置、无上限, 买即开箱
+    // 宝箱: 无需前置、无上限, 买即开箱
     if (id === 'chest') {
       if (!spendCaps(item.cost)) return;
       openChest();
@@ -1734,21 +1752,18 @@
       checkAchievements();
       return;
     }
-    const tech = item.unlockTech
-      ? TECH_TREE.find(t => t.id === item.unlockTech)
-      : TECH_TREE.find(t => t.unlockItem === id);
-    if (!tech || techLevel(tech.id) <= 0) return;
+    if (!itemUnlocked(item)) return;                        // 瓶子看图鉴/锤手看科技
     const cnt = owned(id);
     if (!item.repeatable && cnt > 0) return;
     if (item.repeatable && cnt >= itemCap(item.id)) return;
-    // 桌面已满时不允许再放置瓶子(避免白白扣费)
-    if (id === 'extraBottle' && bottles.length >= currentMaxBottles()) {
+    // 瓶子类: 桌面已满时不允许再放置(避免白白扣费)
+    if (item.codex && bottles.length >= currentMaxBottles()) {
       flashInsufficient();
       return;
     }
     if (!spendCaps(item.cost)) return;
     itemsOwned[id] = cnt + 1;
-    if (id === 'extraBottle') spawnBottle('glass');
+    if (item.codex) spawnBottle(item.codex === 'gold' ? 'gold' : item.codex === 'jade' ? 'jade' : 'glass');
     if (id === 'hand') rebuildHands();
     Sound.purchase();
     renderPanel();
@@ -1756,7 +1771,7 @@
     checkAchievements();
   }
 
-  // 开宝箱: 从 CHEST_POOL 按权重随机抽取, 结果进收获格子(不直接上桌)
+  // 开宝箱: 从 CHEST_POOL 按权重随机抽取, 结果直接结算(首次开出解锁图鉴购买权)
   function openChest() {
     const total = CHEST_POOL.reduce((s, e) => s + e.weight, 0);
     let r = Math.random() * total;
@@ -1765,65 +1780,65 @@
       if (r < e.weight) { pick = e; break; }
       r -= e.weight;
     }
-    if (pick.kind === 'caps') {
-      addDrop('caps', '', pick.amount, 0, 0);
-    } else {
-      addDrop(pick.kind, pick.itemId, 0, 0, 0);
-    }
+    // 开箱结果直接给道具 +1(不进格子); 飘字位置在桌面中央上方
+    const x = CONFIG.worldW / 2, y = 300;
+    const reward = applyDropReward(pick.kind, pick.itemId, pick.amount, x, y);
+    // 开箱特效: 中央冲击波环(金色)
+    const now = performance.now();
+    goldenFx.push({ type: 'ring', x, y, t0: now, r1: 60, dur: 320, w: 5, a: 0.9, color: '#ffd166' });
+    goldenFx.push({ type: 'ring', x, y, t0: now + 80, r1: 60, dur: 320, w: 3, a: 0.5, color: '#ffd166' });
+    return reward;
   }
 
-  // ============================ 锤子(敲碎瓶子) ============================
-  // 敲碎返还购买价 50%(退款不计入累计获得, 避免刷财富成就)
+  // ============================ 通用锤(敲碎任意瓶子) ============================
+  // 敲碎: 消耗 1 个通用锤, 返还瓶盖(70%), 有几率掉同类瓶/宝箱; 退款不计入累计获得
   // 敲碎会永久减少对应道具的拥有量(敲碎玻璃瓶减少「玻璃瓶」道具数量, 初始免费瓶不可敲碎)
   function hammerItemId(type) {
     return type === 'glass' ? 'extraBottle' : (type === 'gold' ? 'specialBottle' : 'jadeBottle');
   }
 
-  function hammerTechId(type) {
-    return type === 'glass' ? 'hammerGlass' : (type === 'gold' ? 'hammerGold' : 'hammerJade');
-  }
-
   function bottleRefund(type) {
     const item = ITEMS.find(i => i.id === hammerItemId(type));
     if (!item) return 0;
-    // 返还比例随锤子科技等级提高(非线性查表), 满级 96% < 100% 保证返还恒 < 瓶子价
-    const lv = techLevel(hammerTechId(type));
-    const levels = CONFIG.hammerRefundLevels;
-    const ratio = levels[Math.min(levels.length - 1, Math.max(0, lv - 1))];
-    return Math.floor(item.cost * ratio);
+    // 通用锤返还比例固定 70%(满级档), 返还恒 < 瓶子价保证净损失恒正
+    return Math.floor(item.cost * CONFIG.hammerDrop.refundRatio);
   }
 
   function toggleHammer(id) {
-    const type = id.replace('Hammer', '');
-    if (hammerMode !== type && owned(id) <= 0) {       // 尝试进入敲碎模式但无锤子
+    if (!hammerMode && owned(id) <= 0) {       // 尝试进入敲碎模式但无锤子
       flashInsufficient();
       return;
     }
-    hammerMode = (hammerMode === type) ? null : type;
+    hammerMode = !hammerMode;
     renderPanel();
   }
 
   function smashBottle(b) {
     const type = b.type;
-    const hammerId = type + 'Hammer';                 // 消耗的锤子道具 id
     const itemId = hammerItemId(type);                // 敲碎的瓶子道具 id(减少拥有量)
     const bt = BOTTLE_TYPES[type] || BOTTLE_TYPES.glass;
     const p = project(b.wx, b.wy, 0);
-    // 无对应锤子: 提示并退出(双保险, toggleHammer 进入模式时已检查)
-    if (owned(hammerId) <= 0) {
-      addFloatText(p.x, p.y - 120, '没有 ' + bt.name + '锤了', '#ff6b6b');
+    // 无通用锤: 提示并退出(双保险, toggleHammer 进入模式时已检查)
+    if (owned('hammer') <= 0) {
+      addFloatText(p.x, p.y - 120, '没有通用锤了', '#ff6b6b');
       Sound.fail();
       return;
     }
     // 免费初始瓶: 不占道具名额、不返还瓶盖, 但可敲碎腾空间(区别于道具买的瓶)
     const isFree = !!b.free;
     const refund = isFree ? 0 : bottleRefund(type);
-    itemsOwned[hammerId] -= 1;                        // 消耗 1 个对应锤子
+    itemsOwned.hammer -= 1;                        // 消耗 1 个通用锤
     if (!isFree && owned(itemId) > 0) itemsOwned[itemId] -= 1;   // 仅道具买的瓶才永久减少拥有量
     bottles = bottles.filter(x => x !== b);
     if (refund > 0) { caps += refund; scoreDisplay += refund; }   // 退款只加瓶盖, 不算累计获得
-    // 敲碎后: 若还有同类锤子则保持敲碎模式(连续敲), 否则退出
-    hammerMode = owned(hammerId) > 0 ? type : null;
+    // 掉落池(仅道具买的瓶): 返还同类瓶 10% + 掉宝箱 2.5%
+    const hd = CONFIG.hammerDrop;
+    if (!isFree) {
+      if (Math.random() < hd.bottleChance) addDrop('bottle', itemId, 0, b.wx, b.wy);
+      else if (Math.random() < hd.chestChance) addDrop('chest', 'chest', 0, b.wx, b.wy);
+    }
+    // 敲碎后: 若还有通用锤则保持敲碎模式(连续敲), 否则退出
+    hammerMode = owned('hammer') > 0;
     // 保底: 桌面清空时补一个免费初始瓶, 保证游戏始终可玩
     if (bottles.length === 0) spawnBottle('glass', true);
     spawnHammerFx(p);                                 // 先锤子挥击
@@ -2844,8 +2859,7 @@
 
   // 敲碎模式顶部提示
   function drawHammerHint() {
-    const bt = BOTTLE_TYPES[hammerMode];
-    const txt = '敲碎模式：点击' + bt.name + '（点空白或再次使用退出）';
+    const txt = '敲碎模式：点击任意瓶子（点空白或再次使用退出）';
     ui.save();
     ui.font = 'bold 16px ' + PIXEL_FONT;
     ui.textAlign = 'left';
@@ -2993,9 +3007,8 @@
       if (d.itemId === 'specialBottle') return 'gold';          // 黄金瓶=高级
       return 'common';                                           // 玻璃瓶=普通
     }
-    if (d.itemId === 'jadeHammer') return 'rare';               // 翡翠锤=稀有
-    if (d.itemId === 'goldHammer') return 'gold';               // 黄金锤=高级
-    return 'common';                                             // 玻璃锤=普通
+    if (d.kind === 'chest') return 'rare';                      // 宝箱=稀有
+    return 'common';                                             // 通用锤=普通
   }
   // 掉落物出现时长(普通冒出 360ms / 稀有星光凝聚 700ms)
   function dropSpawnDur(d) { return dropRarity(d) === 'rare' ? 700 : 360; }
@@ -3031,12 +3044,12 @@
     addDrop('caps', '', amount, nx, ny);
   }
 
-  // 生成一个掉落物(随机种类: 瓶盖/玻璃瓶/玻璃锤, 受科技解锁限制; 稀有瓶只走宝箱)
+  // 生成一个掉落物(随机种类: 瓶盖/玻璃瓶/通用锤, 受图鉴/科技解锁限制; 稀有瓶只走宝箱)
   function spawnDrop() {
-    // 可掉落的种类: 瓶盖恒可; 玻璃瓶需 expand 解锁; 玻璃锤需 hammerGlass 解锁
+    // 可掉落的种类: 瓶盖恒可; 玻璃瓶需图鉴解锁; 通用锤需 hammer 科技解锁
     const kinds = ['caps'];
-    if (techLevel('expand') > 0) kinds.push('bottle');
-    if (techLevel('hammerGlass') > 0) kinds.push('hammer');
+    if ((codex.glass || 0) > 0) kinds.push('bottle');
+    if (techLevel('hammer') > 0) kinds.push('hammer');
     const kind = kinds[(Math.random() * kinds.length) | 0];
     // 随机桌面位置(仅格子满进过期时用)
     const wx = CONFIG.minGap + Math.random() * (CONFIG.table.w - 2 * CONFIG.minGap);
@@ -3044,7 +3057,7 @@
     let amount = 0, itemId = '';
     if (kind === 'caps') amount = 10 + ((Math.random() * 40) | 0) * 5;   // 10~200 瓶盖
     else if (kind === 'bottle') itemId = 'extraBottle';
-    else itemId = 'glassHammer';
+    else itemId = 'hammer';
     addDrop(kind, itemId, amount, wx, wy);
   }
 
@@ -3069,35 +3082,46 @@
     }
   }
 
-  // 拾取掉落物(手动点击 或 自动收获)
-  function collectDrop(d) {
-    const idx = drops.indexOf(d);
-    if (idx < 0) return;
-    if (d.kind === 'caps') {
-      caps += d.amount; scoreDisplay = caps;
-      stats.earned += d.amount;   // 掉落瓶盖计入累计赚取(Zoom 奖励/普通掉落)
-      addFloatText(d.x, d.y - 20, '+' + d.amount, '#ffd166', 'cap');
+  // 结算掉落奖励(开箱/拾取/自动收获共用): 加瓶盖/上瓶(图鉴记录)/加道具/加宝箱
+  function applyDropReward(kind, itemId, amount, x, y) {
+    if (kind === 'caps') {
+      caps += amount; scoreDisplay = caps;
+      stats.earned += amount;   // 掉落瓶盖计入累计赚取(Zoom 奖励/普通掉落)
+      addFloatText(x, y - 20, '+' + amount, '#ffd166', 'cap');
       if (caps > best) best = caps;
-    } else if (d.kind === 'bottle') {
-      // 瓶子按 itemId 映射类型(玻璃/黄金/翡翠); 稀有瓶(黄金/翡翠)开箱/掉落时记录图鉴
-      const type = d.itemId === 'specialBottle' ? 'gold' : d.itemId === 'jadeBottle' ? 'jade' : 'glass';
+      return { type: 'caps', amount };
+    }
+    if (kind === 'bottle') {
+      // 瓶子按 itemId 映射类型(玻璃/黄金/翡翠); 图鉴记录所有类型, 首次开出记录时间戳
+      const type = itemId === 'specialBottle' ? 'gold' : itemId === 'jadeBottle' ? 'jade' : 'glass';
       const bm = type === 'gold' ? { icon: 'bottleGold', color: '#ffd166', name: '黄金瓶' }
               : type === 'jade' ? { icon: 'bottleJade', color: '#6ee7a0', name: '翡翠瓶' }
               : { icon: 'bottle', color: '#bcd8f5', name: '玻璃瓶' };
       spawnBottle(type);
-      addFloatText(d.x, d.y - 20, '+' + bm.name, bm.color, bm.icon);
-      // 稀有瓶首次开出: 记录图鉴
-      if (type === 'gold' || type === 'jade') {
-        const key = type === 'gold' ? 'gold' : 'jade';
-        if (codex[key] === 0) codex[type + 'At'] = Date.now();   // 首次开出时间
-        codex[key] += 1;
-        checkAchievements();   // 图鉴计数可能达成收藏家/翡翠收藏家成就
-      }
-    } else {
-      itemsOwned[d.itemId] = (itemsOwned[d.itemId] || 0) + 1;
-      // 玻璃锤(唯一锤子)
-      addFloatText(d.x, d.y - 20, '+玻璃锤', '#bcd8f5', 'hammerGlass');
+      itemsOwned[itemId] = (itemsOwned[itemId] || 0) + 1;   // 拥有量持久化(重载时重建桌面)
+      addFloatText(x, y - 20, '+' + bm.name, bm.color, bm.icon);
+      // 图鉴记录(累计开出数 + 首次时间戳), 首次开出解锁购买权
+      const key = type === 'gold' ? 'gold' : type === 'jade' ? 'jade' : 'glass';
+      if ((codex[key] || 0) === 0) codex[key + 'At'] = Date.now();
+      codex[key] = (codex[key] || 0) + 1;
+      checkAchievements();   // 图鉴计数可能达成收藏家/翡翠收藏家成就
+      return { type: 'bottle', name: bm.name };
     }
+    if (kind === 'chest') {
+      itemsOwned.chest = (itemsOwned.chest || 0) + 1;   // 掉宝箱 → 宝箱道具 +1
+      addFloatText(x, y - 20, '+神秘宝箱', '#ffd166', 'chest');
+      return { type: 'chest' };
+    }
+    itemsOwned[itemId] = (itemsOwned[itemId] || 0) + 1;   // 通用锤等道具
+    addFloatText(x, y - 20, '+' + (itemId === 'hammer' ? '通用锤' : itemId), '#bcd8f5', 'hammer');
+    return { type: 'item', itemId };
+  }
+
+  // 拾取掉落物(手动点击 或 自动收获)
+  function collectDrop(d) {
+    const idx = drops.indexOf(d);
+    if (idx < 0) return;
+    applyDropReward(d.kind, d.itemId, d.amount, d.x, d.y);
     // 收获特效: 金色小冲击波环 + 上升星光(从格子爆出)
     const now = performance.now();
     goldenFx.push({ type: 'ring', x: d.x, y: d.y, t0: now, r1: 40, dur: 240, w: 4, a: 0.85, color: '#ffd166' });
@@ -3161,18 +3185,15 @@
     // 2) 画掉落物图标
     for (const d of drops) {
       const now = performance.now();
-      // 图标按奖励类型区分: 瓶盖=瓶盖图标 / 玻璃/黄金/翡翠瓶 / 三种锤子各配色
+      // 图标按奖励类型区分: 瓶盖=瓶盖图标 / 玻璃/黄金/翡翠瓶 / 通用锤 / 宝箱
       let icon = 'cap';
       if (d.kind === 'bottle') {
         if (d.itemId === 'specialBottle') icon = 'bottleGold';
         else if (d.itemId === 'jadeBottle') icon = 'bottleJade';
         else icon = 'bottle';
       }
-      else if (d.kind === 'hammer') {
-        if (d.itemId === 'goldHammer') icon = 'hammerGold';
-        else if (d.itemId === 'jadeHammer') icon = 'hammerJade';
-        else icon = 'hammerGlass';
-      }
+      else if (d.kind === 'hammer') icon = 'hammer';
+      else if (d.kind === 'chest') icon = 'chest';
       // 过期掉落: 前段正常显示, 最后 3 秒才闪烁 + 渐隐
       let alpha = 1;
       if (d.state === 'expiring') {

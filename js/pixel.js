@@ -561,6 +561,25 @@
       '................',
       '................',
     ],
+    // 神秘宝箱(金色 + 锁扣)
+    chest: [
+      '................',
+      '.....yyyyyy.....',
+      '....yYYYYYYy....',
+      '...yYYYYYYYYy...',
+      '...yYYYYYYYYy...',
+      '....yYYYYYYy....',
+      '....yyyyyyyy....',
+      '...yYYYYYYYYy...',
+      '...yYYYYYYYYy...',
+      '...yYYYKKYYYy...',
+      '...yYYYKKYYYy...',
+      '...yYYYYYYYYy...',
+      '...yYYYYYYYYy...',
+      '...yYYYYYYYYy...',
+      '...yyyyyyyyyy...',
+      '................',
+    ],
     // 石头
     rock: [
       '................',

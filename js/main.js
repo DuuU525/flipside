@@ -3099,7 +3099,7 @@
               : { icon: 'bottle', color: '#bcd8f5', name: '玻璃瓶' };
       spawnBottle(type);
       itemsOwned[itemId] = (itemsOwned[itemId] || 0) + 1;   // 拥有量持久化(重载时重建桌面)
-      addFloatText(x, y - 20, '+' + bm.name, bm.color, bm.icon);
+      addFloatText(x, y - 20, '+1', bm.color, bm.icon);
       // 图鉴记录(累计开出数 + 首次时间戳), 首次开出解锁购买权
       const key = type === 'gold' ? 'gold' : type === 'jade' ? 'jade' : 'glass';
       if ((codex[key] || 0) === 0) codex[key + 'At'] = Date.now();
@@ -3109,11 +3109,11 @@
     }
     if (kind === 'chest') {
       itemsOwned.chest = (itemsOwned.chest || 0) + 1;   // 掉宝箱 → 宝箱道具 +1
-      addFloatText(x, y - 20, '+神秘宝箱', '#ffd166', 'chest');
+      addFloatText(x, y - 20, '+1', '#ffd166', 'chest');
       return { type: 'chest' };
     }
     itemsOwned[itemId] = (itemsOwned[itemId] || 0) + 1;   // 通用锤等道具
-    addFloatText(x, y - 20, '+' + (itemId === 'hammer' ? '通用锤' : itemId), '#bcd8f5', 'hammer');
+    addFloatText(x, y - 20, '+1', '#bcd8f5', 'hammer');
     return { type: 'item', itemId };
   }
 
@@ -3164,12 +3164,15 @@
       const filled = drops.some(d => d.state === 'grid' && d.slot === i && (now - d.t0) >= dropSpawnDur(d) + FLY);
       ctx.save();
       if (filled) {
-        // 有掉落物: 亮边框 + 淡紫底
+        // 有掉落物: 淡紫底 + 呼吸亮边框(透明度/光晕随正弦波起伏)
+        const pulse = (0.5 + 0.5 * Math.sin(now / 380));   // 呼吸周期 ~2.4s
         roundRect(ctx, p.x - half, p.y - half, cell, cell, 8);
-        ctx.fillStyle = 'rgba(199,146,234,0.12)';
+        ctx.fillStyle = 'rgba(199,146,234,' + (0.10 + 0.08 * pulse).toFixed(3) + ')';
         ctx.fill();
-        ctx.strokeStyle = 'rgba(199,146,234,0.7)';
+        ctx.strokeStyle = 'rgba(199,146,234,' + (0.55 + 0.4 * pulse).toFixed(3) + ')';
         ctx.lineWidth = 2;
+        ctx.shadowColor = 'rgba(199,146,234,' + (0.35 + 0.45 * pulse).toFixed(3) + ')';
+        ctx.shadowBlur = 6 + 10 * pulse;
         ctx.stroke();
       } else {
         // 空格子: 暗底 + 虚线弱边框

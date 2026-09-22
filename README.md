@@ -155,7 +155,7 @@ p-bottle/
 ├── css/
 │   └── style.css      样式（深色主题 · 像素风 UI）
 ├── js/
-│   ├── pixel.js       像素图标库（49 个手绘图标 + SVG/canvas/文字渲染器）
+│   ├── pixel.js       像素图标库（46 个手绘图标 + SVG/canvas/文字渲染器）
 │   ├── data.js        游戏数据（CONFIG / 科技树 / 道具 / 成就 / 里程碑 / 每日目标）
 │   ├── audio.js       音效 + 音乐（WebAudio 合成，零外部文件）
 │   └── main.js        投影 / 抛瓶动画 / 功能界面 / 科技树 / 道具 / 成就
@@ -192,7 +192,7 @@ p-bottle/
   - 文字（漂浮文字/蓄力条标签/敲碎提示/调试信息）绘制在显示画布 `ui` 上，保持原生分辨率清晰可读（中文不受低分辨率影响）。
   - `imageSmoothingEnabled=false` + CSS `image-rendering: pixelated` 保证像素颗粒不被平滑。
 - **像素图标系统**（`js/pixel.js`，零依赖手绘）：
-  - 全部 49 个图标（科技树节点 / 道具 / 成就 / 里程碑 / 每日目标 / 提示 / 音效 / 关闭等）均为手绘 16×16 像素网格（字符串矩阵，`.`=透明、其余字符映射到 `PX` 调色板），替换了原先的所有 emoji。
+  - 全部 46 个图标（科技树节点 / 道具 / 成就 / 里程碑 / 每日目标 / 提示 / 音效 / 关闭等）均为手绘 16×16 像素网格（字符串矩阵，`.`=透明、其余字符映射到 `PX` 调色板），替换了原先的所有 emoji。
   - 三个渲染器：`svg()` 输出 crispEdges 内联 SVG（用于 DOM 卡片/按钮/提示）、`techNode()` 输出 SVG `<g>`（用于全屏科技树 1000×1000 viewBox）、`canvasIcon()` 用 fillRect 画到 canvas（敲碎提示的锤子、挂机抛瓶的机器人标记）。
   - 图标名集中在 `TECH_TREE` / `ACHIEVEMENTS` / `MILESTONES` / `DAILY_POOL` 的 `icon` 字段（如 `'bottle'` / `'crown'` / `'target'`）。
 - **像素文字**：全局字体栈 `Courier New / SimSun(宋体) / NSimSun / monospace` + `-webkit-font-smoothing: none` 关闭抗锯齿——宋体在 Windows 小字号下呈点阵/位图效果，配合等宽西文字体形成复古像素字。canvas 上的浮动文字（"+N 瓶盖"）通过 `textSprite()` 先栅格化到低分辨率再最近邻放大 2 倍，让文字也带像素颗粒；蓄力条标签与敲碎提示直接用像素字体栈绘制。

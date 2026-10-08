@@ -158,7 +158,10 @@ p-bottle/
 │   ├── pixel.js       像素图标库（46 个手绘图标 + SVG/canvas/文字渲染器）
 │   ├── data.js        游戏数据（CONFIG / 科技树 / 道具 / 成就 / 里程碑 / 每日目标）
 │   ├── audio.js       音效 + 音乐（WebAudio 合成，零外部文件）
-│   └── main.js        投影 / 抛瓶动画 / 功能界面 / 科技树 / 道具 / 成就
+│   ├── update-log.js  玩家更新日志（由 tools/gen-update-log.py 从 CHANGELOG 自动生成，勿手改）
+│   └── main.js        投影 / 抛瓶动画 / 功能界面 / 科技树 / 道具 / 成就 / 更新日志弹窗
+├── tools/
+│   └── gen-update-log.py  部署脚本：从 CHANGELOG.md 生成 js/update-log.js
 ├── prototype/
 │   └── prototype-tumble.html  连击特效原型（历史遗留，供参考）
 ├── docs/

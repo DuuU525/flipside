@@ -92,6 +92,20 @@
 
 <div id="toasts"></div>
 
+<!-- 更新日志弹窗（新版本首次进入时显示，位于开始界面之上） -->
+<div id="updateLogOverlay" class="update-log-overlay hidden">
+  <div class="update-log-card">
+    <div class="update-log-head">
+      <span class="update-log-label">更新日志</span>
+      <span class="update-log-ver">v<span id="updateLogVersion"></span></span>
+      <span class="update-log-date" id="updateLogDate"></span>
+    </div>
+    <div class="update-log-title" id="updateLogTitle"></div>
+    <div class="update-log-body" id="updateLogBody"></div>
+    <button id="updateLogCloseBtn" class="btn update-log-close">知道了</button>
+  </div>
+</div>
+
 <!-- 全屏科技树大图（横向分层节点图） -->
 <div id="techOverlay" class="tech-overlay hidden">
   <div class="tech-overlay-card">
@@ -189,6 +203,7 @@
 <script src="js/pixel.js"></script>
 <script src="js/data.js"></script>
 <script src="js/audio.js"></script>
+<script src="js/update-log.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

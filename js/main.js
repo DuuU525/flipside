@@ -3468,4 +3468,41 @@
   renderPanel();
   render();
   requestAnimationFrame(loop);
+
+  // ============================ 更新日志 ============================
+  // 数据来自 js/update-log.js 的 window.UPDATE_LOG(部署前由 CHANGELOG.md 自动生成)。
+  // 新版本首次进入时, 在开始界面之上弹更新日志卡片, 点「知道了」记已读版本。
+  const UPDATE_LOG_KEY = 'pbottle.updateLogRead';
+  // 轻量 markdown 转 HTML(仅支持 **加粗** 与 `行内代码`, 先转义防注入)
+  function mdToHtml(s) {
+    const esc = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return esc
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  }
+  function showUpdateLog() {
+    const log = (window.UPDATE_LOG || [])[0];
+    if (!log) return;                                   // 无更新数据(本地开发未生成时静默跳过)
+    const el = document.getElementById('updateLogOverlay');
+    const verEl = document.getElementById('updateLogVersion');
+    const dateEl = document.getElementById('updateLogDate');
+    const titleEl = document.getElementById('updateLogTitle');
+    const bodyEl = document.getElementById('updateLogBody');
+    const closeBtn = document.getElementById('updateLogCloseBtn');
+    if (!el || !verEl || !bodyEl || !closeBtn) return;
+    verEl.textContent = log.version;
+    dateEl.textContent = log.date || '';
+    titleEl.textContent = log.title || '';
+    bodyEl.innerHTML = '<ul>' + (log.items || []).map(it => '<li>' + mdToHtml(it) + '</li>').join('') + '</ul>';
+    el.classList.remove('hidden');
+    closeBtn.onclick = () => {
+      el.classList.add('hidden');
+      try { localStorage.setItem(UPDATE_LOG_KEY, log.version); } catch (e) {}
+    };
+  }
+  try {
+    const latest = (window.UPDATE_LOG || [])[0];
+    const read = localStorage.getItem(UPDATE_LOG_KEY);
+    if (latest && latest.version !== read) showUpdateLog();
+  } catch (e) {}
 })();

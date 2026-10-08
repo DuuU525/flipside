@@ -1183,29 +1183,27 @@
     pos[TECH_ROOT.id] = { x: SCX, y: SCY };
     const sideGroups = { infra: [], A: [], B: [] };
     allNodes.forEach(n => { if (!n.isRoot) sideGroups[n.side || 'infra'].push(n); });
-    function layerOf(side, d) {
-      return sideGroups[side].filter(n => depth[n.id] === d);
-    }
     const maxD = {};
     ['infra', 'A', 'B'].forEach(s => { maxD[s] = Math.max(...sideGroups[s].map(n => depth[n.id])); });
 
-    // 方向 A(倒立瓶): 向上, 深度越深越靠上、瓶身越宽(瓶底在上)
-    for (const n of sideGroups.A) {
-      const d = depth[n.id];
-      const half = mouthHalf + (d - 1) / (maxD.A - 1) * (bottomHalf - mouthHalf);
-      const layer = layerOf('A', d);
-      const idx = layer.indexOf(n);
-      const x = layer.length === 1 ? SCX : SCX - half + (2 * half) * idx / (layer.length - 1);
-      pos[n.id] = { x, y: SCY - d * gapY };
-    }
-    // 方向 B(正立瓶): 向下, 深度越深越靠下、瓶身越宽(瓶底在下)
-    for (const n of sideGroups.B) {
-      const d = depth[n.id];
-      const half = mouthHalf + (d - 1) / (maxD.B - 1) * (bottomHalf - mouthHalf);
-      const layer = layerOf('B', d);
-      const idx = layer.indexOf(n);
-      const x = layer.length === 1 ? SCX : SCX - half + (2 * half) * idx / (layer.length - 1);
-      pos[n.id] = { x, y: SCY + d * gapY };
+    // 方向 A/B: 逐层计算, 层内按父节点 x 排序(tidy-tree), 保证连线不交叉
+    // 父层从左到右有序 + 子层按父 x 排序 → 归纳保证任意两层连线不交叉
+    for (const side of ['A', 'B']) {
+      const sign = side === 'A' ? -1 : 1;   // A 向上(y 递减), B 向下(y 递增)
+      const md = maxD[side];
+      for (let d = 1; d <= md; d++) {
+        const layer = sideGroups[side].filter(n => depth[n.id] === d);
+        layer.sort((a, b) => {
+          const ax = a.prereq && pos[a.prereq] ? pos[a.prereq].x : SCX;
+          const bx = b.prereq && pos[b.prereq] ? pos[b.prereq].x : SCX;
+          return ax - bx;
+        });
+        const half = mouthHalf + (d - 1) / (md - 1) * (bottomHalf - mouthHalf);
+        layer.forEach((n, idx) => {
+          const x = layer.length === 1 ? SCX : SCX - half + (2 * half) * idx / (layer.length - 1);
+          pos[n.id] = { x, y: SCY + sign * d * gapY };
+        });
+      }
     }
     // 基建(腰部左侧 tidy-tree: 树根 branchBottle 紧邻瓶口, 向左展开, 保持拓扑、连线不交叉)
     // 注: 基建是单一树(根 branchBottle), 拆左右两列会导致连线横穿腰部, 故用单侧 tidy-tree + 右侧对称装饰

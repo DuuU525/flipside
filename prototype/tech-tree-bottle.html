@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>科技树 · 瓶子成型原型</title>
+<style>
+  :root {
+    --good: #52e07c; --bonus: #ffc857; --accent: #4cc9f0;
+    --muted: #8fa0b8; --text: #d7e2f2; --bg: #0c1a46; --card: #16223a;
+    --border: rgba(255,255,255,0.14);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; background: var(--bg); color: var(--text);
+    font-family: "Courier New", SimSun, monospace; -webkit-font-smoothing: none; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+  .cols { display: flex; gap: 20px; flex-wrap: wrap; }
+  .panel { flex: 1 1 560px; min-width: 520px; background: var(--card);
+    border: 1px solid var(--border); padding: 12px; }
+  .panel h2 { font-size: 15px; margin: 0 0 4px; }
+  .panel .tag { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .panel svg { width: 100%; height: auto; display: block; background: #0a1330; }
+  .legend { margin-top: 18px; font-size: 13px; color: var(--muted); line-height: 1.7; }
+  .legend b { color: var(--text); }
+  .dot { display:inline-block; width:10px; height:10px; margin-right:6px; }
+  .dot.g { background: var(--good); } .dot.y { background: var(--bonus); }
+  .dot.d { background:#3a4a63; } .dot.b { background:#bcd8f5; }
+  .note { color:#ffd166; font-weight:700; }
+</style>
+</head>
+<body>
+<h1>科技树 · 瓶子成型原型（第二版）</h1>
+<div class="sub">左＝现状（两个梯形虚线）；右＝新方案（真实瓶子轮廓 + 方向点满后「成型」填色）</div>
+
+<div class="cols">
+  <div class="panel">
+    <h2>现状</h2>
+    <div class="tag">两个梯形虚线 · 纯图标 · 逐层揭示（下方终极大招看不见）</div>
+    <svg id="now" viewBox="0 0 1000 1000"></svg>
+  </div>
+  <div class="panel">
+    <h2>新方案</h2>
+    <div class="tag">真实瓶子轮廓（带瓶口/瓶颈/瓶身）· A 方向已点满 → 倒立瓶「成型」填色 · B 方向未点满 → 淡虚线 · 大招灯塔始终可见</div>
+    <svg id="pro" viewBox="0 0 1000 1000"></svg>
+  </div>
+</div>
+
+<div class="legend">
+  <span class="dot g"></span><b>已解锁</b>
+  <span class="dot y"></span><b>可解锁</b>
+  <span class="dot d"></span><b>灰显预告</b>（下一层 + 终极大招灯塔）
+  <span class="dot b"></span><b>瓶子成型填色</b>（方向点满后）
+  <br>
+  新方案要点：① 去名称、纯图标；② 真实瓶子形状替代梯形虚线（瓶口窄→瓶颈→瓶身宽）；③ A 方向点满 → 倒立瓶「成型」实线+玻璃蓝填色；④ 未点满方向 → 淡虚线轮廓；⑤ 倒立宗师/自动化工厂两个大招灯塔始终灰显可见。
+  <br><span class="note">看右图：A 方向（上方倒立瓶）已成型、有玻璃蓝填色；B 方向（下方）还是淡虚线轮廓；两个终极大招（菱形）即使前置未解锁也灰显可见。</span>
+</div>
+
+<script src="../js/pixel.js"></script>
+<script>
+(function () {
+  'use strict';
+  const P = window.PixelArt;
+
+  const TREE = [
+    { id:'branchBottle', name:'瓶子分支', icon:'bottle', side:'infra', prereq:null, pts:1, tier:'entry' },
+    { id:'expandCap',    name:'扩容工程', icon:'box',    side:'infra', prereq:'branchBottle', pts:2, tier:'base' },
+    { id:'hammer',       name:'通用锤',   icon:'hammer', side:'infra', prereq:'branchBottle', pts:1, tier:'base' },
+    { id:'cooldown',     name:'通用冷却', icon:'snow',   side:'infra', prereq:'branchBottle', pts:1, tier:'base' },
+    { id:'branchLuck',   name:'成功率分支', icon:'target', side:'A', prereq:null, pts:1, tier:'entry' },
+    { id:'stability',    name:'稳定科技',   icon:'rock',   side:'A', prereq:'branchLuck', pts:3, tier:'base' },
+    { id:'balance',      name:'平衡科技',   icon:'scales', side:'A', prereq:'branchLuck', pts:3, tier:'base' },
+    { id:'streak',       name:'连击科技',   icon:'fire',   side:'A', prereq:'branchLuck', pts:3, tier:'base' },
+    { id:'godhand',      name:'神之一手',   icon:'crown',  side:'A', prereq:'balance', pts:4, tier:'adv' },
+    { id:'streakReward', name:'连击奖励',   icon:'coin',   side:'A', prereq:'streak',  pts:4, tier:'adv' },
+    { id:'streakWindow', name:'连击时间',   icon:'bolt',   side:'A', prereq:'streak',  pts:3, tier:'adv' },
+    { id:'pointerSlow',  name:'指针减速',   icon:'target', side:'A', prereq:'stability', pts:3, tier:'adv' },
+    { id:'perfect',      name:'完美判定',   icon:'star',   side:'A', prereq:'godhand', pts:4, tier:'adv2' },
+    { id:'goldenLuck',   name:'金色概率+',  icon:'sparkle', side:'A', prereq:'streakReward', pts:3, tier:'adv2' },
+    { id:'invertedMaster', name:'倒立宗师', icon:'crown',  side:'A', prereq:'perfect', pts:4, tier:'final' },
+    { id:'branchHand',   name:'手分支',     icon:'hand',   side:'B', prereq:null, pts:1, tier:'entry' },
+    { id:'unlockHand',   name:'解锁手',     icon:'glove',  side:'B', prereq:'branchHand', pts:3, tier:'base' },
+    { id:'handFreq',     name:'手频率',     icon:'rocket', side:'B', prereq:'branchHand', pts:3, tier:'base' },
+    { id:'handLuck',     name:'手几率',     icon:'dice',   side:'B', prereq:'branchHand', pts:3, tier:'base' },
+    { id:'handStreak',   name:'挂机连击',   icon:'fire',   side:'B', prereq:'unlockHand', pts:4, tier:'adv' },
+    { id:'handGolden',   name:'手幸运',     icon:'sparkle', side:'B', prereq:'handFreq', pts:3, tier:'adv' },
+    { id:'handSync',     name:'手速共享',   icon:'rocket', side:'B', prereq:'handLuck', pts:3, tier:'adv' },
+    { id:'offline',      name:'离线收益',   icon:'clock',  side:'B', prereq:'handStreak', pts:4, tier:'adv2' },
+    { id:'autoHarvest',  name:'自动收获',   icon:'box',    side:'B', prereq:'handGolden', pts:4, tier:'adv2' },
+    { id:'handReport',   name:'挂机报告',   icon:'clipboard', side:'B', prereq:'handSync', pts:3, tier:'adv2' },
+    { id:'autoFactory',  name:'自动化工厂', icon:'gear',   side:'B', prereq:'autoHarvest', pts:4, tier:'final' },
+  ];
+  const ROOT = { id:'_root', name:'解锁科技树', icon:'lockopen', isRoot:true };
+
+  // 模拟进度：A 方向已点满（11 节点全解锁）；B 方向部分解锁；基建全解锁
+  const UNLOCKED = new Set(['_root','branchBottle','expandCap','hammer','cooldown',
+    'branchLuck','stability','balance','streak','godhand','streakReward','streakWindow','pointerSlow','perfect','goldenLuck','invertedMaster',
+    'branchHand','unlockHand','handFreq','handLuck']);
+  const AVAILABLE = new Set(['handStreak','handGolden','handSync']);
+
+  const SCX = 500, SCY = 500, gapY = 90, mouthHalf = 40, bottomHalf = 240;
+  const depth = { '_root': 0 };
+  (function calc(id, d) { for (const n of TREE) { const pid = n.prereq || '_root';
+    if (pid === id) { depth[n.id] = d + 1; calc(n.id, d + 1); } } })('_root', 0);
+  const sideGroups = { infra:[], A:[], B:[] };
+  TREE.forEach(n => sideGroups[n.side].push(n));
+  const maxD = {};
+  ['infra','A','B'].forEach(s => maxD[s] = Math.max(...sideGroups[s].map(n => depth[n.id])));
+  const pos = { '_root': { x: SCX, y: SCY } };
+  function layerOf(side, d) { return sideGroups[side].filter(n => depth[n.id] === d); }
+  sideGroups.A.forEach(n => { const d = depth[n.id];
+    const half = mouthHalf + (d-1)/(maxD.A-1)*(bottomHalf-mouthHalf);
+    const layer = layerOf('A', d); const idx = layer.indexOf(n);
+    pos[n.id] = { x: layer.length===1 ? SCX : SCX-half+(2*half)*idx/(layer.length-1), y: SCY-d*gapY }; });
+  sideGroups.B.forEach(n => { const d = depth[n.id];
+    const half = mouthHalf + (d-1)/(maxD.B-1)*(bottomHalf-mouthHalf);
+    const layer = layerOf('B', d); const idx = layer.indexOf(n);
+    pos[n.id] = { x: layer.length===1 ? SCX : SCX-half+(2*half)*idx/(layer.length-1), y: SCY+d*gapY }; });
+  const infraRoot = sideGroups.infra.find(n => !n.prereq);
+  const infraChildren = {};
+  sideGroups.infra.forEach(n => { if (n.prereq) (infraChildren[n.prereq] = infraChildren[n.prereq]||[]).push(n); });
+  const infraYSlot = {}; let infraLeaf = 0;
+  (function assign(id) { const kids = infraChildren[id]||[];
+    if (!kids.length) { infraYSlot[id] = infraLeaf++; return; }
+    let s=0; kids.forEach(k=>{assign(k);s+=infraYSlot[k];}); infraYSlot[id]=s/kids.length; })(infraRoot.id);
+  sideGroups.infra.forEach(n => { pos[n.id] = { x: SCX-185-(depth[n.id]-1)*72, y: SCY+(infraYSlot[n.id]-(infraLeaf-1)/2)*60 }; });
+
+  // 真实瓶子轮廓 path（带瓶口/瓶颈/瓶身），side=A 倒立(瓶底上)、side=B 正立(瓶底下)
+  function bottlePath(side, yTop, yBottom) {
+    const bw = bottomHalf, tw = mouthHalf;
+    const H = yBottom - yTop;                 // 瓶总高
+    const neckY = H * 0.22;                   // 瓶口段高度（22%）
+    const shoulderY = H * 0.38;               // 肩部收窄段高度
+    const cx = SCX;
+    if (side === 'A') {
+      // 倒立瓶：瓶底在上(宽)，瓶口在下(窄，对接根)
+      const bottomY = yTop;                    // 瓶底 = 顶部
+      const mouthY = yBottom;                  // 瓶口 = 底部
+      const neckTop = mouthY - neckY;          // 瓶颈上沿
+      const shoulderTop = mouthY - shoulderY;  // 肩部上沿
+      return `M ${cx-bw} ${bottomY}
+        L ${cx+bw} ${bottomY}
+        L ${cx+bw} ${shoulderTop}
+        C ${cx+bw} ${neckTop+20} ${cx+tw+16} ${neckTop} ${cx+tw} ${neckTop-6}
+        L ${cx+tw} ${mouthY}
+        L ${cx-tw} ${mouthY}
+        L ${cx-tw} ${neckTop-6}
+        C ${cx-tw-16} ${neckTop} ${cx-bw} ${neckTop+20} ${cx-bw} ${shoulderTop}
+        Z`;
+    } else {
+      // 正立瓶：瓶口在上(窄，对接根)，瓶底在下(宽)
+      const mouthY = yTop;                     // 瓶口 = 顶部
+      const bottomY = yBottom;                 // 瓶底 = 底部
+      const neckBottom = mouthY + neckY;
+      const shoulderBottom = mouthY + shoulderY;
+      return `M ${cx-tw} ${mouthY}
+        L ${cx+tw} ${mouthY}
+        L ${cx+tw} ${neckBottom-6}
+        C ${cx+tw+16} ${neckBottom} ${cx+bw} ${neckBottom+20} ${cx+bw} ${shoulderBottom}
+        L ${cx+bw} ${bottomY}
+        L ${cx-bw} ${bottomY}
+        L ${cx-bw} ${shoulderBottom}
+        C ${cx-bw} ${neckBottom+20} ${cx-tw-16} ${neckBottom} ${cx-tw} ${neckBottom-6}
+        Z`;
+    }
+  }
+
+  function stateOf(id, mode) {
+    if (id === '_root') return UNLOCKED.has('_root') ? 'unlocked' : 'available';
+    if (UNLOCKED.has(id)) return 'unlocked';
+    const n = TREE.find(t => t.id === id);
+    const pre = n.prereq || '_root';
+    if (UNLOCKED.has(pre) || (pre === '_root' && UNLOCKED.has('_root'))) return 'available';
+    if (mode === 'now') return 'hidden';          // 现状：逐层揭示
+    // 新方案：终极大招灯塔始终可见 + 下一层预告
+    if (n.tier === 'final') return 'tease';
+    const preN = TREE.find(t => t.id === n.prereq);
+    if (preN && AVAILABLE.has(n.prereq)) return 'tease';
+    return 'hidden';
+  }
+
+  function nodeSize(tier) {
+    if (tier==='entry') return 72; if (tier==='base') return 64;
+    if (tier==='adv') return 56; if (tier==='adv2') return 52;
+    if (tier==='final') return 60; return 64;
+  }
+
+  function render(svgId, mode) {
+    const svg = document.getElementById(svgId);
+    let html = '';
+
+    // 瓶形轮廓
+    const A_top = SCY - maxD.A * gapY, A_bot = SCY - gapY * 0.55;
+    const B_top = SCY + gapY * 0.55, B_bot = SCY + maxD.B * gapY;
+    // 方向是否点满（该 side 所有节点都解锁）
+    const full = s => sideGroups[s].every(n => UNLOCKED.has(n.id));
+    const A_full = full('A'), B_full = full('B');
+
+    if (mode === 'now') {
+      // 现状：两个梯形虚线
+      html += `<path d="M ${SCX-bottomHalf} ${A_top} L ${SCX+bottomHalf} ${A_top} L ${SCX+mouthHalf} ${SCY-gapY*0.6} L ${SCX-mouthHalf} ${SCY-gapY*0.6} Z" fill="none" stroke="rgba(255,255,255,0.14)" stroke-width="1.5" stroke-dasharray="8 6"/>`;
+      html += `<path d="M ${SCX-mouthHalf} ${SCY+gapY*0.6} L ${SCX+mouthHalf} ${SCY+gapY*0.6} L ${SCX+bottomHalf} ${B_bot} L ${SCX-bottomHalf} ${B_bot} Z" fill="none" stroke="rgba(255,255,255,0.14)" stroke-width="1.5" stroke-dasharray="8 6"/>`;
+      html += `<path d="M ${SCX+185} ${SCY-150} L ${SCX+340} ${SCY-150} L ${SCX+340} ${SCY+150} L ${SCX+185} ${SCY+150} Z" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1.5" stroke-dasharray="6 8"/>`;
+    } else {
+      // 新方案：真实瓶子形状；点满 → 成型填色，未点满 → 淡虚线
+      const drawBottle = (side, yTop, yBottom, isFull) => {
+        const d = bottlePath(side, yTop, yBottom);
+        if (isFull) {
+          html += `<path d="${d}" fill="rgba(150,205,255,0.10)" stroke="rgba(180,216,245,0.55)" stroke-width="2.5" style="filter:drop-shadow(0 0 10px rgba(150,205,255,0.25))"/>`;
+        } else {
+          html += `<path d="${d}" fill="none" stroke="rgba(255,255,255,0.14)" stroke-width="1.5" stroke-dasharray="7 5"/>`;
+        }
+      };
+      drawBottle('A', A_top, A_bot, A_full);
+      drawBottle('B', B_top, B_bot, B_full);
+    }
+
+    // 连线
+    for (const n of TREE) {
+      const st = stateOf(n.id, mode);
+      if (st === 'hidden') continue;
+      const pid = n.prereq || '_root';
+      const a = pos[pid], b = pos[n.id]; if (!a || !b) continue;
+      const dx=b.x-a.x, dy=b.y-a.y, dist=Math.hypot(dx,dy)||1;
+      const ux=dx/dist, uy=dy/dist;
+      let stroke, sw, dash='', glow='';
+      if (st==='unlocked') { stroke='rgba(82,224,124,0.75)'; sw=3; glow='style="filter:drop-shadow(0 0 4px rgba(82,224,124,0.5))"'; }
+      else if (st==='available') { stroke='rgba(255,200,87,0.6)'; sw=2; dash='stroke-dasharray="6 6"'; }
+      else { stroke='rgba(255,255,255,0.15)'; sw=1.5; dash='stroke-dasharray="3 5"'; }
+      html += `<line x1="${a.x+ux*30}" y1="${a.y+uy*30}" x2="${b.x-ux*28}" y2="${b.y-uy*28}" stroke="${stroke}" stroke-width="${sw}" ${dash} ${glow}/>`;
+    }
+
+    // 节点
+    for (const n of [ROOT, ...TREE]) {
+      const st = stateOf(n.id, mode);
+      if (st === 'hidden') continue;
+      const p = pos[n.id];
+      const tier = n.isRoot ? 'entry' : TREE.find(t=>t.id===n.id).tier;
+      const s = nodeSize(tier), h = s/2;
+      let ringStroke, ringFill, iconOp;
+      if (st==='unlocked') { ringStroke='rgba(82,224,124,0.9)'; ringFill='rgba(82,224,124,0.12)'; iconOp=1; }
+      else if (st==='available') { ringStroke='rgba(255,200,87,0.95)'; ringFill='#141f33'; iconOp=1; }
+      else { ringStroke='rgba(255,255,255,0.16)'; ringFill='#101827'; iconOp=0.45; }
+      let glow='';
+      if (tier==='final' && st==='available') glow='style="filter:drop-shadow(0 0 8px rgba(255,200,87,0.7))"';
+      if (tier==='final' && st==='unlocked') glow='style="filter:drop-shadow(0 0 8px rgba(82,224,124,0.7))"';
+      let pulse='';
+      if (st==='available' && !n.isRoot) {
+        pulse = tier==='final'
+          ? `<polygon points="0,${-h} ${h},0 0,${h} ${-h},0" fill="none" stroke="#ffc857" stroke-width="2" class="pulse"/>`
+          : `<rect x="${-h}" y="${-h}" width="${s}" height="${s}" fill="none" stroke="#ffc857" stroke-width="2" class="pulse"/>`;
+      }
+      html += `<g transform="translate(${p.x} ${p.y})">`;
+      if (pulse) html += `<g class="pulselayer">${pulse}</g>`;
+      const ring = tier==='final'
+        ? `<polygon points="0,${-h} ${h},0 0,${h} ${-h},0" fill="${ringFill}" stroke="${ringStroke}" stroke-width="2.5" ${glow}/>`
+        : `<rect x="${-h}" y="${-h}" width="${s}" height="${s}" fill="${ringFill}" stroke="${ringStroke}" stroke-width="2.5" ${glow}/>`;
+      html += ring;
+      const isize = tier==='entry'?40:(tier==='base'?32:(tier==='adv'?28:(tier==='adv2'?26:32)));
+      html += `<g transform="scale(${isize/32})" opacity="${iconOp}">${P.techNode(n.icon, 0, 0)}</g>`;
+      if (!n.isRoot) {
+        html += `<rect x="${h-16}" y="${-h-6}" width="18" height="18" rx="3" fill="rgba(76,201,240,0.16)" stroke="#4cc9f0" stroke-width="1"/><text x="${h-7}" y="${-h+3}" font-size="10" font-weight="700" fill="#4cc9f0" text-anchor="middle">${TREE.find(t=>t.id===n.id).pts}</text>`;
+      }
+      html += `</g>`;
+    }
+    svg.innerHTML = html;
+  }
+
+  render('now', 'now');
+  render('pro', 'pro');
+
+  const style = document.createElement('style');
+  style.textContent = `
+    .pulselayer { transform-box: fill-box; transform-origin: center; }
+    .pulse { animation: tp 1.6s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+    @keyframes tp { 0% { transform: scale(1); stroke-opacity:0.9; } 100% { transform: scale(1.35); stroke-opacity:0; } }
+  `;
+  document.head.appendChild(style);
+})();
+</script>
+</body>
+</html>

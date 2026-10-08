@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>科技树展示优化 · 原型对比</title>
+<style>
+  :root {
+    --good: #52e07c;    /* 已解锁 绿 */
+    --bonus: #ffc857;   /* 可解锁 金 */
+    --accent: #4cc9f0;  /* 蓝 */
+    --muted: #8fa0b8;
+    --text: #d7e2f2;
+    --bg: #0c1a46;
+    --card: #16223a;
+    --border: rgba(255,255,255,0.14);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Courier New", SimSun, monospace;
+    -webkit-font-smoothing: none;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .cols { display: flex; gap: 20px; flex-wrap: wrap; }
+  .panel {
+    flex: 1 1 560px; min-width: 520px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    padding: 12px;
+  }
+  .panel h2 { font-size: 15px; margin: 0 0 4px; }
+  .panel .tag { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .panel svg { width: 100%; height: auto; display: block; background: #0a1330; }
+  .legend { margin-top: 18px; font-size: 13px; color: var(--muted); line-height: 1.7; }
+  .legend b { color: var(--text); }
+  .dot { display: inline-block; width: 10px; height: 10px; margin-right: 6px; }
+  .dot.g { background: var(--good); }
+  .dot.y { background: var(--bonus); }
+  .dot.d { background: #3a4a63; }
+  .note { color: #ffd166; font-weight: 700; }
+</style>
+</head>
+<body>
+<h1>科技树展示优化 · 原型对比</h1>
+<div class="sub">同一份「中期存档」进度，左＝现状，右＝推荐方案（1-A 名称常驻 + 2-A 尺寸分级 + 3-C 当前+下一层 + 4-A 连线发光）</div>
+
+<div class="cols">
+  <div class="panel">
+    <h2>现状</h2>
+    <div class="tag">纯图标 · 逐层揭示（只显示已解锁+可解锁）· 同尺寸 64</div>
+    <svg id="now" viewBox="0 0 1000 1000"></svg>
+  </div>
+  <div class="panel">
+    <h2>推荐</h2>
+    <div class="tag">名称常驻 · 尺寸分级（入口72/基础64/进阶56/终极菱形发光）· 当前+下一层 · 连线发光</div>
+    <svg id="pro" viewBox="0 0 1000 1000"></svg>
+  </div>
+</div>
+
+<div class="legend">
+  <span class="dot g"></span><b>已解锁</b>（绿发光）
+  <span class="dot y"></span><b>可解锁</b>（金脉冲，前置满足+科技点够）
+  <span class="dot d"></span><b>灰显预告</b>（仅推荐版：下一层可见，前置未满足）
+  <br>
+  推荐版额外差异：<b>名称常驻</b>在节点下方；<b>尺寸分级</b>入口大/进阶小/终极菱形；<b>连线发光</b>已解锁链亮绿；<b>移除右侧过时装饰</b>。
+  <br><span class="note">对比看：现状下方 A/B 两个终极节点（倒立宗师/自动化工厂）完全看不见，推荐版能「预告」它们的存在。</span>
+</div>
+
+<script src="../js/pixel.js"></script>
+<script>
+(function () {
+  'use strict';
+  const P = window.PixelArt;
+
+  // 真实节点数据（side + 前置 + 占点 + 图标），从 js/data.js 摘录
+  const TREE = [
+    // 基建
+    { id:'branchBottle', name:'瓶子分支', icon:'bottle', side:'infra', prereq:null, pts:1, tier:'entry' },
+    { id:'expandCap',    name:'扩容工程', icon:'box',    side:'infra', prereq:'branchBottle', pts:2, tier:'base' },
+    { id:'hammer',       name:'通用锤',   icon:'hammer', side:'infra', prereq:'branchBottle', pts:1, tier:'base' },
+    { id:'cooldown',     name:'通用冷却', icon:'snow',   side:'infra', prereq:'branchBottle', pts:1, tier:'base' },
+    // A 方向
+    { id:'branchLuck',   name:'成功率分支', icon:'target',  side:'A', prereq:null, pts:1, tier:'entry' },
+    { id:'stability',    name:'稳定科技',   icon:'rock',    side:'A', prereq:'branchLuck', pts:3, tier:'base' },
+    { id:'balance',      name:'平衡科技',   icon:'scales',  side:'A', prereq:'branchLuck', pts:3, tier:'base' },
+    { id:'streak',       name:'连击科技',   icon:'fire',    side:'A', prereq:'branchLuck', pts:3, tier:'base' },
+    { id:'godhand',      name:'神之一手',   icon:'crown',   side:'A', prereq:'balance', pts:4, tier:'adv' },
+    { id:'streakReward', name:'连击奖励',   icon:'coin',    side:'A', prereq:'streak',  pts:4, tier:'adv' },
+    { id:'streakWindow', name:'连击时间',   icon:'bolt',    side:'A', prereq:'streak',  pts:3, tier:'adv' },
+    { id:'pointerSlow',  name:'指针减速',   icon:'target',  side:'A', prereq:'stability', pts:3, tier:'adv' },
+    { id:'perfect',      name:'完美判定',   icon:'star',    side:'A', prereq:'godhand', pts:4, tier:'adv2' },
+    { id:'goldenLuck',   name:'金色概率+',  icon:'sparkle', side:'A', prereq:'streakReward', pts:3, tier:'adv2' },
+    { id:'invertedMaster', name:'倒立宗师', icon:'crown',   side:'A', prereq:'perfect', pts:4, tier:'final' },
+    // B 方向
+    { id:'branchHand',   name:'手分支',     icon:'hand',     side:'B', prereq:null, pts:1, tier:'entry' },
+    { id:'unlockHand',   name:'解锁手',     icon:'glove',    side:'B', prereq:'branchHand', pts:3, tier:'base' },
+    { id:'handFreq',     name:'手频率',     icon:'rocket',   side:'B', prereq:'branchHand', pts:3, tier:'base' },
+    { id:'handLuck',     name:'手几率',     icon:'dice',     side:'B', prereq:'branchHand', pts:3, tier:'base' },
+    { id:'handStreak',   name:'挂机连击',   icon:'fire',     side:'B', prereq:'unlockHand', pts:4, tier:'adv' },
+    { id:'handGolden',   name:'手幸运',     icon:'sparkle',  side:'B', prereq:'handFreq', pts:3, tier:'adv' },
+    { id:'handSync',     name:'手速共享',   icon:'rocket',   side:'B', prereq:'handLuck', pts:3, tier:'adv' },
+    { id:'offline',      name:'离线收益',   icon:'clock',    side:'B', prereq:'handStreak', pts:4, tier:'adv2' },
+    { id:'autoHarvest',  name:'自动收获',   icon:'box',      side:'B', prereq:'handGolden', pts:4, tier:'adv2' },
+    { id:'handReport',   name:'挂机报告',   icon:'clipboard', side:'B', prereq:'handSync', pts:3, tier:'adv2' },
+    { id:'autoFactory',  name:'自动化工厂', icon:'gear',     side:'B', prereq:'autoHarvest', pts:4, tier:'final' },
+  ];
+  const ROOT = { id:'_root', name:'解锁科技树', icon:'lockopen', isRoot:true };
+
+  // 模拟「中期存档」：已解锁集合
+  const UNLOCKED = new Set([
+    '_root','branchBottle','expandCap','hammer','cooldown',
+    'branchLuck','stability','balance','streak',
+    'branchHand','unlockHand','handFreq','handLuck',
+  ]);
+  // 可解锁（前置满足）
+  const AVAILABLE = new Set([
+    'godhand','streakReward','streakWindow','pointerSlow',
+    'handStreak','handGolden','handSync',
+  ]);
+
+  // 布局：沙漏（复用 renderTech 算法）
+  const SCX = 500, SCY = 500, gapY = 90, mouthHalf = 40, bottomHalf = 240;
+  const depth = { '_root': 0 };
+  (function calc(id, d) {
+    for (const n of TREE) {
+      const pid = n.prereq || '_root';
+      if (pid === id) { depth[n.id] = d + 1; calc(n.id, d + 1); }
+    }
+  })('_root', 0);
+  const sideGroups = { infra:[], A:[], B:[] };
+  TREE.forEach(n => sideGroups[n.side].push(n));
+  const maxD = {};
+  ['infra','A','B'].forEach(s => maxD[s] = Math.max(...sideGroups[s].map(n => depth[n.id])));
+  const pos = { '_root': { x: SCX, y: SCY } };
+  function layerOf(side, d) { return sideGroups[side].filter(n => depth[n.id] === d); }
+  sideGroups.A.forEach(n => {
+    const d = depth[n.id];
+    const half = mouthHalf + (d-1)/(maxD.A-1)*(bottomHalf-mouthHalf);
+    const layer = layerOf('A', d);
+    const idx = layer.indexOf(n);
+    pos[n.id] = { x: layer.length===1 ? SCX : SCX-half+(2*half)*idx/(layer.length-1), y: SCY-d*gapY };
+  });
+  sideGroups.B.forEach(n => {
+    const d = depth[n.id];
+    const half = mouthHalf + (d-1)/(maxD.B-1)*(bottomHalf-mouthHalf);
+    const layer = layerOf('B', d);
+    const idx = layer.indexOf(n);
+    pos[n.id] = { x: layer.length===1 ? SCX : SCX-half+(2*half)*idx/(layer.length-1), y: SCY+d*gapY };
+  });
+  // 基建左侧
+  const infraRoot = sideGroups.infra.find(n => !n.prereq);
+  const infraChildren = {};
+  sideGroups.infra.forEach(n => { if (n.prereq) (infraChildren[n.prereq] = infraChildren[n.prereq]||[]).push(n); });
+  const infraYSlot = {}; let infraLeaf = 0;
+  (function assign(id) {
+    const kids = infraChildren[id] || [];
+    if (!kids.length) { infraYSlot[id] = infraLeaf++; return; }
+    let s = 0; kids.forEach(k => { assign(k); s += infraYSlot[k]; });
+    infraYSlot[id] = s / kids.length;
+  })(infraRoot.id);
+  sideGroups.infra.forEach(n => {
+    pos[n.id] = { x: SCX - 185 - (depth[n.id]-1)*72, y: SCY + (infraYSlot[n.id]-(infraLeaf-1)/2)*60 };
+  });
+
+  // 图标：techNode 输出 32 单位，用 g scale 缩放适配
+  function icon(n, size) {
+    const s = size / 32;
+    return `<g transform="translate(${pos[n.id].x} ${pos[n.id].y}) scale(${s})">${P.techNode(n.icon, 0, 0)}</g>`;
+  }
+  // 节点尺寸分级
+  function nodeSize(tier) {
+    if (tier === 'entry') return 72;
+    if (tier === 'base')  return 64;
+    if (tier === 'adv')   return 56;
+    if (tier === 'adv2')  return 52;
+    if (tier === 'final') return 60;
+    return 64;
+  }
+  function ringShape(tier, x, y, s) {
+    const h = s / 2;
+    if (tier === 'final') {
+      // 菱形（终极）
+      return `<polygon points="${x},${y-h} ${x+h},${y} ${x},${y+h} ${x-h},${y}" />`;
+    }
+    return `<rect x="${x-h}" y="${y-h}" width="${s}" height="${s}" />`;
+  }
+
+  // 状态判断（含「当前+下一层」）
+  function stateOf(id, revealNext) {
+    if (id === '_root') return UNLOCKED.has('_root') ? 'unlocked' : 'available';
+    if (UNLOCKED.has(id)) return 'unlocked';
+    const n = TREE.find(t => t.id === id);
+    const pre = n.prereq || '_root';
+    const preOk = UNLOCKED.has(pre) || (pre === '_root' && UNLOCKED.has('_root'));
+    if (preOk) return 'available';
+    // 下一层预告：前置是 available
+    const preN = TREE.find(t => t.id === n.prereq);
+    if (preN && AVAILABLE.has(n.prereq)) return 'tease';
+    return 'hidden';
+  }
+
+  function render(svgId, mode) {
+    const svg = document.getElementById(svgId);
+    let html = '';
+    const revealNext = mode === 'pro';
+
+    // 瓶形轮廓
+    html += `<path d="M ${SCX-bottomHalf} ${SCY-maxD.A*gapY} L ${SCX+bottomHalf} ${SCY-maxD.A*gapY} L ${SCX+mouthHalf} ${SCY-gapY*0.6} L ${SCX-mouthHalf} ${SCY-gapY*0.6} Z" fill="none" stroke="rgba(255,255,255,0.14)" stroke-width="1.5" stroke-dasharray="8 6"/>`;
+    html += `<path d="M ${SCX-mouthHalf} ${SCY+gapY*0.6} L ${SCX+mouthHalf} ${SCY+gapY*0.6} L ${SCX+bottomHalf} ${SCY+maxD.B*gapY} L ${SCX-bottomHalf} ${SCY+maxD.B*gapY} Z" fill="none" stroke="rgba(255,255,255,0.14)" stroke-width="1.5" stroke-dasharray="8 6"/>`;
+    if (mode === 'now') {
+      // 现状的右侧过时装饰
+      html += `<path d="M ${SCX+185} ${SCY-150} L ${SCX+340} ${SCY-150} L ${SCX+340} ${SCY+150} L ${SCX+185} ${SCY+150} Z" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1.5" stroke-dasharray="6 8"/>`;
+    }
+
+    const all = [ROOT, ...TREE];
+    // 连线
+    for (const n of TREE) {
+      const st = stateOf(n.id, revealNext);
+      if (st === 'hidden') continue;
+      const pid = n.prereq || '_root';
+      const a = pos[pid], b = pos[n.id];
+      if (!a || !b) continue;
+      const dx = b.x-a.x, dy = b.y-a.y, dist = Math.hypot(dx,dy)||1;
+      const ux = dx/dist, uy = dy/dist;
+      let stroke, sw, dash='', glow='';
+      if (st === 'unlocked') { stroke = 'rgba(82,224,124,0.75)'; sw = 3; glow = 'filter:drop-shadow(0 0 4px rgba(82,224,124,0.5))'; }
+      else if (st === 'available') { stroke = 'rgba(255,200,87,0.6)'; sw = 2; dash = 'stroke-dasharray="6 6"'; }
+      else { stroke = 'rgba(255,255,255,0.15)'; sw = 1.5; dash = 'stroke-dasharray="3 5"'; }
+      html += `<line x1="${a.x+ux*30}" y1="${a.y+uy*30}" x2="${b.x-ux*28}" y2="${b.y-uy*28}" stroke="${stroke}" stroke-width="${sw}" ${dash} style="${glow}"/>`;
+    }
+
+    // 节点
+    for (const n of all) {
+      const st = stateOf(n.id, revealNext);
+      if (st === 'hidden') continue;
+      const p = pos[n.id];
+      const tier = n.isRoot ? 'entry' : TREE.find(t=>t.id===n.id).tier;
+      const s = nodeSize(tier);
+      const h = s/2;
+
+      let ringStroke, ringFill, iconOp, nameFill;
+      if (st === 'unlocked') {
+        ringStroke = 'rgba(82,224,124,0.9)'; ringFill = 'rgba(82,224,124,0.12)';
+        iconOp = 1; nameFill = '#52e07c';
+      } else if (st === 'available') {
+        ringStroke = 'rgba(255,200,87,0.95)'; ringFill = '#141f33';
+        iconOp = 1; nameFill = '#ffc857';
+      } else { // tease
+        ringStroke = 'rgba(255,255,255,0.16)'; ringFill = '#101827';
+        iconOp = 0.45; nameFill = '#3a4a63';
+      }
+
+      // 终极发光
+      let glow = '';
+      if (tier === 'final' && st === 'available') glow = 'style="filter:drop-shadow(0 0 8px rgba(255,200,87,0.7))"';
+      if (tier === 'final' && st === 'unlocked') glow = 'style="filter:drop-shadow(0 0 8px rgba(82,224,124,0.7))"';
+
+      // 脉冲（available）
+      let pulse = '';
+      if (st === 'available' && !n.isRoot) {
+        pulse = ringShape(tier, p.x, p.y, s).replace(' />', '') + ` fill="none" stroke="#ffc857" stroke-width="2" class="pulse"/>`;
+      }
+
+      html += `<g transform="translate(${p.x} ${p.y})">`;
+      if (pulse) html += `<g class="pulselayer">${pulse}</g>`;
+      // ring
+      const ring = tier === 'final'
+        ? `<polygon points="0,${-h} ${h},0 0,${h} ${-h},0" fill="${ringFill}" stroke="${ringStroke}" stroke-width="2.5" ${glow}/>`
+        : `<rect x="${-h}" y="${-h}" width="${s}" height="${s}" fill="${ringFill}" stroke="${ringStroke}" stroke-width="2.5" ${glow}/>`;
+      html += ring;
+      // icon（缩放到节点尺寸）
+      const isize = tier === 'entry' ? 40 : (tier === 'base' ? 32 : (tier === 'adv' ? 28 : (tier === 'adv2' ? 26 : 32)));
+      html += `<g transform="scale(${isize/32})" opacity="${iconOp}">${P.techNode(n.icon, 0, 0)}</g>`;
+      // 占点徽章（右上角）
+      if (!n.isRoot) {
+        html += `<rect x="${h-16}" y="${-h-6}" width="18" height="18" rx="3" fill="rgba(76,201,240,0.16)" stroke="#4cc9f0" stroke-width="1"/><text x="${h-7}" y="${-h+3}" font-size="10" font-weight="700" fill="#4cc9f0" text-anchor="middle">${TREE.find(t=>t.id===n.id).pts}</text>`;
+      }
+      // 名称常驻（仅推荐版）
+      if (mode === 'pro') {
+        const fs = tier === 'entry' ? 12 : 11;
+        html += `<text y="${h+14}" font-size="${fs}" font-weight="${tier==='final'||tier==='entry'?700:400}" fill="${nameFill}" text-anchor="middle">${n.name}</text>`;
+      }
+      html += `</g>`;
+    }
+
+    svg.innerHTML = html;
+  }
+
+  render('now', 'now');
+  render('pro', 'pro');
+
+  // 脉冲动画（CSS 内联，因为原型独立）
+  const style = document.createElement('style');
+  style.textContent = `
+    .pulselayer { transform-box: fill-box; transform-origin: center; }
+    .pulse { animation: tp 1.6s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+    @keyframes tp { 0% { transform: scale(1); stroke-opacity: 0.9; } 100% { transform: scale(1.35); stroke-opacity: 0; } }
+  `;
+  document.head.appendChild(style);
+})();
+</script>
+</body>
+</html>

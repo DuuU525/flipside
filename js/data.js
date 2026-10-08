@@ -224,11 +224,11 @@
     { id: 'branchLuck',   name: '成功率分支', icon: 'target', points: 1, side: 'A', prereq: null, desc: '开启成功率分支', detail: '开启成功率分支：提升直立率与倒立率，让抛瓶更准、连击收益更高。' },
     { id: 'stability',    name: '稳定科技',   icon: 'rock', points: 3, side: 'A', prereq: 'branchLuck',   desc: '直立区间扩宽', detail: '直立区间半宽 +0.06，蓄力时更容易命中直立。' },
     { id: 'balance',      name: '平衡科技',   icon: 'scales', points: 3, side: 'A', prereq: 'branchLuck',    desc: '倒立区间扩宽', detail: '倒立区间半宽 +0.04，蓄力时更容易命中倒立。' },
-    { id: 'streak',       name: '连击科技',   icon: 'fire', points: 3, side: 'A', prereq: 'branchLuck',      desc: '开启连击强化', detail: '开启连击强化分支，解锁「连击奖励」与「连击存在时间」。' },
+    { id: 'streak',       name: '连击科技',   icon: 'fire', points: 3, side: 'A', prereq: 'branchLuck',      desc: '开启连击强化', detail: '开启连击强化分支：解锁「连击奖励」，进阶「连击存在时间」与「金色概率+」。' },
     // 进阶(7节点, 25点)
     { id: 'godhand',      name: '神之一手',   icon: 'crown', points: 4, side: 'A', prereq: 'balance',      maxLevel: 3, desc: '倒立几率大幅提升', detail: '倒立区间半宽 +0.12，大幅提升倒立几率。' },
     { id: 'streakReward', name: '连击奖励',   icon: 'coin', points: 4, side: 'A', prereq: 'streak',       maxLevel: 3, desc: '连击加成 +3', detail: '连击加成 +3 瓶盖，连击越高每次奖励越多。' },
-    { id: 'streakWindow', name: '连击存在时间', icon: 'bolt', points: 3, side: 'A', prereq: 'streak',     maxLevel: 3, desc: '连击时间 +6 秒', detail: '连击存在时间 +6 秒（4→10 秒），更充足的时间保持连击。' },
+    { id: 'streakWindow', name: '连击存在时间', icon: 'bolt', points: 3, side: 'A', prereq: 'streakReward', maxLevel: 3, desc: '连击时间 +6 秒', detail: '连击存在时间 +6 秒（4→10 秒），更充足的时间保持连击。' },
     { id: 'pointerSlow',  name: '指针减速',   icon: 'target', points: 3, side: 'A', prereq: 'stability',   desc: '指针速度 -15%', detail: '蓄力指针速度 ×0.85，更慢更好瞄准，技巧有纵深。' },
     { id: 'perfect',      name: '完美判定',   icon: 'star', points: 4, side: 'A', prereq: 'godhand',      desc: '完美区命中 ×1.5', detail: '直立区间中心分窄「完美区」（±0.02），命中奖励 ×1.5，给高手更高天花板。' },
     { id: 'goldenLuck',   name: '金色概率+',  icon: 'sparkle', points: 3, side: 'A', prereq: 'streakReward', desc: '金色瞬间几率 +0.5%', detail: '金色瞬间基础触发概率 +0.5%，手动专属惊喜。' },

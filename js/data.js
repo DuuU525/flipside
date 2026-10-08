@@ -160,6 +160,14 @@
       mult: 10,            // 奖励倍率
     },
 
+    // 特殊瓶子差异化(黄金=幸运/翡翠=成长; 手动满额, 挂机弱化+科技门槛)
+    specialFx: {
+      goldManualBonus: 0.01,   // 黄金瓶手动: 金色瞬间概率 +1%(绝对, 作用于 goldenChance)
+      goldHandBonus: 0.002,    // 黄金瓶挂机: 手幸运金色瞬间概率 +0.2%(0.5%→0.7%, 需手幸运科技)
+      jadeDropChance: 0.03,    // 翡翠瓶手动: 命中时触发掉落事件的概率(3%)
+      jadeHandStreakBonus: 1,  // 翡翠瓶挂机: 手命中 handHitStreak 额外 +1(需自动收获科技)
+    },
+
     soundVolume: 0.7,        // 默认音效音量(0~1)
     musicVolume: 0.5,        // 默认音乐音量(0~1)
 

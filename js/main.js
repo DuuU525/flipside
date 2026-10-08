@@ -553,10 +553,11 @@
     return 'lying';
   }
 
-  // 金色瞬间触发概率: 基础 + 连击加成 + 金色概率+科技, 封顶(彩蛋越连击越容易遇到, 但保持稀有)
-  function goldenChance() {
+  // 金色瞬间触发概率: 基础 + 连击加成 + 金色概率+科技 + 黄金瓶专属加成, 封顶
+  function goldenChance(type) {
     const luck = techLevel('goldenLuck') > 0 ? CONFIG.goldenLuckBonus : 0;
-    return Math.min(CONFIG.golden.maxChance, CONFIG.golden.baseChance + streak * CONFIG.golden.perStreak + luck);
+    const goldBonus = type === 'gold' ? CONFIG.specialFx.goldManualBonus : 0;  // 黄金瓶=幸运: 手动金色瞬间概率 +1%
+    return Math.min(CONFIG.golden.maxChance, CONFIG.golden.baseChance + streak * CONFIG.golden.perStreak + luck + goldBonus);
   }
 
   // ============================ 朝向角度语义 ============================
@@ -730,10 +731,13 @@
     b.spinDir = Math.random() < 0.5 ? 1 : -1;                 // 随机正转/反转
     b.startRot = b.rot;
     b.resultState = forcedState || rollState();              // 结果状态(蓄力判定 或 随机)
-    // 手幸运(挂机金色瞬间): 手抛瓶小概率触发金色瞬间, 强制倒立
-    if (b.source === 'hand' && !b.golden && techLevel('handGolden') > 0 && Math.random() < CONFIG.handGoldenChance) {
-      b.golden = true;
-      b.resultState = 'inverted';
+    // 手幸运(挂机金色瞬间): 手抛瓶小概率触发金色瞬间, 强制倒立; 黄金瓶额外 +0.2%
+    if (b.source === 'hand' && !b.golden && techLevel('handGolden') > 0) {
+      const handChance = CONFIG.handGoldenChance + (b.type === 'gold' ? CONFIG.specialFx.goldHandBonus : 0);
+      if (Math.random() < handChance) {
+        b.golden = true;
+        b.resultState = 'inverted';
+      }
     }
     if (milestoneUnlocked('ms_lucky') && Math.random() < CONFIG.milestone.luckyChance) {
       b.resultState = upgradeState(b.resultState);             // 幸运瓶: 结果升一档
@@ -815,9 +819,16 @@
     }
     // 手连续命中通道(桌面事件): 手命中累计, 达阈值触发事件并重置
     if (isHand && b.state !== 'lying') {
-      handHitStreak++;
+      // 翡翠瓶挂机(成长): 需自动收获科技, 手抛翡翠命中额外 +1 连成(加速触发掉落)
+      const jadeStreakBonus = (b.type === 'jade' && techLevel('autoHarvest') > 0) ? CONFIG.specialFx.jadeHandStreakBonus : 0;
+      handHitStreak += 1 + jadeStreakBonus;
       const trigger = hasAutoFactory() ? CONFIG.event.handStreakFactory : CONFIG.event.handStreakTrigger;
       if (handHitStreak >= trigger) { handHitStreak = 0; spawnDrop(); }
+    }
+    // 翡翠瓶手动(成长): 命中时小概率触发掉落事件(非 Zoom、非金色瞬间, 手动专属)
+    if (!isHand && b.type === 'jade' && b.state !== 'lying' && !zoom && !b.golden
+        && Math.random() < CONFIG.specialFx.jadeDropChance) {
+      spawnDrop();
     }
     // Zoom 判定: 挑战目标瓶的抛瓶结果(成功/失败)
     if (zoom) zoomSettle(b, b.state);
@@ -962,7 +973,7 @@
       // 完美判定科技: 直立命中且指针落在完美区(直立中心 ±perfectHalf) → 标记完美命中
       const perfectHit = techLevel('perfect') > 0 && state === 'upright'
         && Math.abs(ptr - CONFIG.charge.uprightCenter) <= CONFIG.perfectHalf;
-      const golden = Math.random() < goldenChance();     // 金色瞬间: 小概率触发(随连击提升)
+      const golden = Math.random() < goldenChance(b.type);     // 金色瞬间: 小概率触发(随连击提升; 黄金瓶额外+1%)
       if (golden) state = 'inverted';                    // 触发即强制倒立
       throwBottle(b, state, 'manual', golden);
       if (perfectHit) b.perfectHit = true;               // 标记完美命中(结算时 ×1.5)

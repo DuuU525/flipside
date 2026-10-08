@@ -214,10 +214,9 @@
   // 对称: A满=35点(基础10+进阶25) = B满=35点; 基建5点; 50=基建5+满35+另一方向基础10
   const TECH_TREE = [
     // ============ 中立基建 5 点(环绕腰部; 瓶子解锁走图鉴, 锤子/冷却通用) ============
-    { id: 'branchBottle', name: '瓶子分支',   icon: 'bottle', points: 1, side: 'infra', prereq: null, desc: '开启瓶子分支',   detail: '开启瓶子分支：瓶子种类(图鉴解锁)、通用锤子、桌面瓶子数量与上限。' },
-    { id: 'expandCap',    name: '扩容工程',   icon: 'box', points: 2, side: 'infra', prereq: 'branchBottle', maxLevel: 6, desc: '桌面瓶子上限 +12', detail: '桌面瓶子数量上限 +12（共 20 个）。' },
-    { id: 'hammer',       name: '通用锤',     icon: 'hammer', points: 1, side: 'infra', prereq: 'branchBottle', unlockItem: 'hammer', maxLevel: 5, desc: '砸任何瓶 · 掉落挂钩', detail: '解锁通用锤（砸任何瓶子），满级掉落：瓶盖返还 70% + 返还同类瓶 10% + 掉宝箱 2.5%。' },
-    { id: 'cooldown',     name: '通用冷却',   icon: 'snow', points: 1, side: 'infra', prereq: 'branchBottle', maxLevel: 5, desc: '所有瓶冷却 -0.5s', detail: '所有类型瓶子抛后冷却时间 -0.5 秒（2.0→1.5 秒）。' },
+    { id: 'branchBottle', name: '瓶子',       icon: 'bottle', points: 3, side: 'infra', prereq: null, maxLevel: 6, desc: '桌面瓶子上限 +12', detail: '解锁瓶子体系 + 桌面瓶子数量上限 +12（共 20 个）。' },
+    { id: 'hammer',       name: '锤子',       icon: 'hammer', points: 1, side: 'infra', prereq: 'branchBottle', unlockItem: 'hammer', maxLevel: 5, desc: '砸任何瓶 · 掉落挂钩', detail: '解锁锤子（砸任何瓶子），满级掉落：瓶盖返还 70% + 返还同类瓶 10% + 掉宝箱 2.5%。' },
+    { id: 'cooldown',     name: '冷却',       icon: 'snow', points: 1, side: 'infra', prereq: 'branchBottle', maxLevel: 5, desc: '所有瓶冷却 -0.5s', detail: '所有类型瓶子抛后冷却时间 -0.5 秒（2.0→1.5 秒）。' },
 
     // ============ 方向 A(倒立瓶 · 手动技巧) 35 点 = 基础10 + 进阶25 ============
     // 基础(4节点, 10点): 入口 + 稳定 + 平衡 + 连击入口
@@ -256,8 +255,8 @@
     { id: 'specialBottle', name: '黄金瓶', cost: 150, repeatable: true, codex: 'gold',  desc: '桌面增加 1 个黄金瓶 · 命中 ×2.5（图鉴解锁）' },
     { id: 'jadeBottle',    name: '翡翠瓶', cost: 300, repeatable: true, codex: 'jade',  desc: '桌面增加 1 个翡翠瓶 · 命中 ×5（图鉴解锁）' },
     { id: 'hand',          name: '手',      cost: 60,  repeatable: true, max: 8, unlockTech: 'unlockHand', desc: '自动抛空闲瓶子 · 每只手需要一个瓶子' },
-    { id: 'hammer',        name: '通用锤',  cost: 30,  repeatable: true, max: 99, unlockTech: 'hammer', desc: '敲碎任意瓶子 · 返还 70% + 掉宝' },
-    { id: 'chest',         name: '神秘宝箱', cost: 150, repeatable: true, desc: '随机开出玻璃瓶 / 瓶盖 / 通用锤 / 黄金瓶 / 翡翠瓶' },
+    { id: 'hammer',        name: '锤子',  cost: 30,  repeatable: true, max: 99, unlockTech: 'hammer', desc: '敲碎任意瓶子 · 返还 70% + 掉宝' },
+    { id: 'chest',         name: '神秘宝箱', cost: 150, repeatable: true, desc: '随机开出玻璃瓶 / 瓶盖 / 锤子 / 黄金瓶 / 翡翠瓶' },
   ];
 
   // 宝箱奖池(稀有瓶通过宝箱开出, 图鉴解锁后可直购)
@@ -285,7 +284,7 @@
     { id: 'earn20000',   name: '富可敌国',   desc: '累计获得 20000 瓶盖', icon: 'gem', type: 'earned',       target: 20000, reward: 1000 },
     { id: 'special10',   name: '特殊瓶专家', desc: '特殊瓶命中 10 次',    icon: 'sparkle', type: 'specialHits',  target: 10,    reward: 50 },
     { id: 'tech5',       name: '科技先驱',   desc: '解锁 5 个科技',       icon: 'flask', type: 'techCount',    target: 5,     reward: 50 },
-    { id: 'techAll',     name: '学富五车',   desc: '解锁全部 26 个科技', icon: 'grad', type: 'techCount',    target: 26,    reward: 400 },
+    { id: 'techAll',     name: '学富五车',   desc: '解锁全部 25 个科技', icon: 'grad', type: 'techCount',    target: 25,    reward: 400 },
     { id: 'hand8',       name: '八爪鱼',     desc: '拥有 8 只手',         icon: 'hand', type: 'handCount',    target: 8,     reward: 100 },
     { id: 'bottle8',     name: '瓶满为患',   desc: '桌面放满瓶子',         icon: 'bottle', type: 'bottleCount',  target: 8,     reward: 80 },
     { id: 'special3',    name: '收藏家',     desc: '累计开出 3 个黄金瓶', icon: 'star', type: 'codexGold',   target: 3,     reward: 100 },

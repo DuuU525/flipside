@@ -139,7 +139,7 @@
 
   // ============================ 存档版本 ============================
   // 修改存档结构时 +1, 并在 loadState 的迁移分支里逐版本升级旧档
-  const SAVE_VERSION = 9;
+  const SAVE_VERSION = 10;
 
   // ============================ 状态 ============================
   let caps = 0, best = 0, streak = 0, attempts = 0;
@@ -323,6 +323,15 @@
         }
         // 老档已解锁玻璃瓶(expand) → 玻璃瓶图鉴默认解锁(否则老玩家失去购买权); 新档(ver=0)不触发
         if (hadExpand && (codex.glass || 0) < 1) { codex.glass = 1; if (!codex.glassAt) codex.glassAt = Date.now(); }
+      }
+      // 存档迁移 v9 → v10: 扩容工程(expandCap)删除, 功能并入瓶子(branchBottle)
+      // 老档 expandCap 等级 → 并入 branchBottle(两者都是每级 +2 上限, 直接相加); 已解锁扩容的老玩家不缩水
+      if (ver < 10) {
+        const ec = techLevels.expandCap || 0;
+        if (ec > 0) {
+          techLevels.branchBottle = Math.max(techLevels.branchBottle || 0, ec);
+          delete techLevels.expandCap;
+        }
       }
       const mn = localStorage.getItem('pbottle.milestones');
       if (mn) milestoneNotified = JSON.parse(mn) || {};
@@ -580,9 +589,9 @@
     };
   }
 
-  // 桌面上限 = 基础值 + 扩容科技加成
+  // 桌面上限 = 基础值 + 瓶子科技加成(瓶子节点 maxLevel 6, 每级 +2)
   function currentMaxBottles() {
-    return CONFIG.maxBottles + techLevel('expandCap') * CONFIG.expandCapPerLevel;
+    return CONFIG.maxBottles + techLevel('branchBottle') * CONFIG.expandCapPerLevel;
   }
 
   function currentBottleCount() {
@@ -1202,37 +1211,20 @@
         });
       }
     }
-    // 基建(腰部左侧: 瓶子分支已在中心, 功能节点向左展开, 保持拓扑、连线不交叉)
-    const infraRoot = sideGroups.infra.find(n => !n.prereq) || sideGroups.infra[0];
-    const infraChildren = {};
-    sideGroups.infra.forEach(n => { if (n.prereq) (infraChildren[n.prereq] = infraChildren[n.prereq] || []).push(n); });
-    const infraYSlot = {};
-    let infraLeaf = 0;
-    (function assignInfraY(id) {
-      const kids = infraChildren[id] || [];
-      if (!kids.length) { infraYSlot[id] = infraLeaf++; return; }
-      let s = 0;
-      for (const k of kids) { assignInfraY(k.id); s += infraYSlot[k.id]; }
-      infraYSlot[id] = s / kids.length;
-    })(infraRoot.id);
-    sideGroups.infra.forEach(n => {
-      if (n.id === ANCHOR) return;   // 瓶子分支已在沙漏中心, 不参与左侧布局
-      const d = depth[n.id];
-      pos[n.id] = {
-        x: SCX - 185 - (d - 1) * 72,
-        y: SCY + (infraYSlot[n.id] - (infraLeaf - 1) / 2) * 60,
-      };
+    // 基建(腰部: 瓶子在中心, 锤子左 / 冷却右, 对称)
+    // 功能节点(hammer/cooldown 等 infra 侧、非锚点)直接挂在瓶子(ANCHOR)下, 左右对称排列
+    const infraKids = sideGroups.infra.filter(n => n.id !== ANCHOR);
+    infraKids.forEach((n, idx) => {
+      const offset = 185;   // 离瓶子中心的横向距离
+      const side = idx % 2 === 0 ? -1 : 1;   // 偶数左、奇数右
+      const row = Math.floor(idx / 2);
+      pos[n.id] = { x: SCX + side * offset, y: SCY + row * 80 };
     });
 
     let html = '';
-    // 瓶形轮廓虚线(勾勒倒立瓶 A / 正立瓶 B, 强化方向隐喻)
-    html += `<path class="t-bottle" d="M ${SCX - bottomHalf} ${SCY - maxD.A * gapY} L ${SCX + bottomHalf} ${SCY - maxD.A * gapY} L ${SCX + mouthHalf} ${SCY - gapY * 0.6} L ${SCX - mouthHalf} ${SCY - gapY * 0.6} Z"/>`;
-    html += `<path class="t-bottle" d="M ${SCX - mouthHalf} ${SCY + gapY * 0.6} L ${SCX + mouthHalf} ${SCY + gapY * 0.6} L ${SCX + bottomHalf} ${SCY + maxD.B * gapY} L ${SCX - bottomHalf} ${SCY + maxD.B * gapY} Z"/>`;
-    // 右侧对称装饰(呼应"环绕", 淡化瓶形; 阶段三 B 方向节点加满后可移除)
-    html += `<path class="t-bottle-dim" d="M ${SCX + 185} ${SCY - 150} L ${SCX + 340} ${SCY - 150} L ${SCX + 340} ${SCY + 150} L ${SCX + 185} ${SCY + 150} Z"/>`;
     // 连线: 从父节点边缘指向子节点边缘的径向直线(子节点可见时父节点必然可见)
     for (const node of visibleNodes) {
-      if (node.id === ANCHOR) continue;   // 瓶子分支(锚点)不画连线
+      if (node.id === ANCHOR) continue;   // 瓶子(锚点)不画连线
       const parentId = node.prereq || ANCHOR;
       const a = pos[parentId], b = pos[node.id];
       if (!a || !b) continue;
@@ -1817,7 +1809,7 @@
     const p = project(b.wx, b.wy, 0);
     // 无通用锤: 提示并退出(双保险, toggleHammer 进入模式时已检查)
     if (owned('hammer') <= 0) {
-      addFloatText(p.x, p.y - 120, '没有通用锤了', '#ff6b6b');
+      addFloatText(p.x, p.y - 120, '没有锤子了', '#ff6b6b');
       Sound.fail();
       return;
     }

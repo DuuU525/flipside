@@ -250,18 +250,6 @@
     { id: 'autoFactory',  name: '自动化工厂', icon: 'gear', points: 4, side: 'B', prereq: 'autoHarvest', desc: '解锁桌面奇妙事件', detail: '解锁「桌面奇妙事件」：挂机产出时几率掉落奖励，丰富挂机趣味。', final: true },
   ];
 
-  // 科技树第0层根节点: 解锁科技树功能本身(对应「解锁功能界面」)
-  // 该节点不在 TECH_TREE 内, 由 renderTech 单独置于第0列; 其余科技整体右移一层
-  const TECH_ROOT = {
-    id: '_unlockTechTree',
-    name: '解锁科技树功能',
-    icon: 'lockopen',
-    cost: CONFIG.panelUnlockCost,
-    isRoot: true,
-    desc: '解锁科技树功能',
-    detail: '消耗 ' + CONFIG.panelUnlockCost + ' 瓶盖解锁科技树，之后才能研究「瓶子分支」「成功率分支」「手分支」三大分支。',
-  };
-
   // 道具(购买到的拥有物, 有数量; 瓶子类靠图鉴解锁, 锤子/手靠科技解锁, 宝箱始终可买)
   const ITEMS = [
     { id: 'extraBottle',   name: '玻璃瓶', cost: 25,  repeatable: true, codex: 'glass', desc: '桌面增加 1 个玻璃瓶（图鉴解锁）' },
@@ -332,7 +320,6 @@
   window.PB.STREAK_FX = STREAK_FX;
   window.PB.streakFx = streakFx;
   window.PB.TECH_TREE = TECH_TREE;
-  window.PB.TECH_ROOT = TECH_ROOT;
   window.PB.ITEMS = ITEMS;
   window.PB.CHEST_POOL = CHEST_POOL;
   window.PB.ACHIEVEMENTS = ACHIEVEMENTS;

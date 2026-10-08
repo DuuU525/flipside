@@ -2,7 +2,7 @@
   'use strict';
 
   // ============================ 游戏数据(来自 js/data.js) ============================
-  const { CONFIG, BOTTLE_TYPES, STREAK_FX, TECH_TREE, TECH_ROOT, ITEMS, CHEST_POOL, ACHIEVEMENTS, MILESTONES, DAILY_POOL } = window.PB;
+  const { CONFIG, BOTTLE_TYPES, STREAK_FX, TECH_TREE, ITEMS, CHEST_POOL, ACHIEVEMENTS, MILESTONES, DAILY_POOL } = window.PB;
   const streakFx = window.PB.streakFx;
 
   const ISO_SIN = Math.SQRT1_2; // sin45° ≈ 0.7071 (深度方向压缩)
@@ -1112,10 +1112,6 @@
 
   // 节点状态: unlocked(已解锁) / available(前置满足且科技点足够,可解锁) / poor(前置满足但科技点不足) / locked(前置未满足)
   function techNodeState(node) {
-    if (node.isRoot) {
-      if (panelUnlocked) return 'unlocked';
-      return caps >= node.cost ? 'available' : 'poor';  // 根节点映射「解锁功能界面」, 看瓶盖是否够解锁面板
-    }
     if (!panelUnlocked) return 'locked';       // 科技树功能未解锁, 全部锁定
     const lv = techLevel(node.id);
     if (lv > 0) return 'unlocked';             // 已解锁(一次性满级, 无升级)
@@ -1150,39 +1146,40 @@
     return ctm ? pt.matrixTransform(ctm.inverse()) : { x: clientX, y: clientY };
   }
 
-  // 全屏科技树 SVG 渲染(沙漏形双方向: A 倒立瓶向上 / B 正立瓶向下 / 根在瓶口对接 / 基建在腰部左侧)
+  // 全屏科技树 SVG 渲染(沙漏形双方向: A 倒立瓶向上 / B 正立瓶向下 / 瓶子分支在瓶口对接处 / 基建在腰部左侧)
   // 只展示前置已满足的节点: 前置未解锁的科技不显示, 随解锁逐层揭示
   function renderTech() {
     const W = 1000, H = 1000;
     // 沙漏布局参数
-    const SCX = 660, SCY = 500;               // 沙漏中心(根节点位置)
+    const SCX = 660, SCY = 500;               // 沙漏中心(瓶子分支锚点位置)
     const gapY = 90;                           // 每层纵向间距
     const mouthHalf = 40, bottomHalf = 240;    // 瓶口/瓶底半宽(倒立瓶上宽下窄)
+    const ANCHOR = 'branchBottle';             // 沙漏中心锚点(瓶子分支替代原「解锁科技树」根节点)
 
-    // 可见节点: 根节点始终可见; 其余只保留前置已满足(非 locked)的节点
-    const visibleNodes = [TECH_ROOT, ...TECH_TREE].filter(n => techNodeState(n) !== 'locked');
+    // 可见节点: 只保留前置已满足(非 locked)的节点
+    const visibleNodes = TECH_TREE.filter(n => techNodeState(n) !== 'locked');
 
-    // 父 -> 子 映射(基于完整树, 含不可见节点; 三大分支 prereq=null 挂在根下)
+    // 父 -> 子 映射(基于完整树, 含不可见节点; 三大分支 prereq=null 挂在锚点 branchBottle 下)
     // 位置基于完整树计算 → 解锁新节点只"多画一个", 已有节点坐标不动(不洗牌)
-    const allNodes = [TECH_ROOT, ...TECH_TREE];
+    const allNodes = TECH_TREE;
     const children = {};
     allNodes.forEach(n => {
-      if (n.isRoot) return;
-      const pid = n.prereq || TECH_ROOT.id;
+      const pid = n.prereq || ANCHOR;
+      if (pid === n.id) return;                // 锚点自身(prereq null)不自环
       (children[pid] = children[pid] || []).push(n);
     });
 
-    // 深度(相对根): 根=0, 逐层 +1
-    const depth = { [TECH_ROOT.id]: 0 };
+    // 深度(相对锚点): 锚点=0, 逐层 +1
+    const depth = { [ANCHOR]: 0 };
     (function calcDepth(id, d) {
       for (const k of (children[id] || [])) { depth[k.id] = d + 1; calcDepth(k.id, d + 1); }
-    })(TECH_ROOT.id, 0);
+    })(ANCHOR, 0);
 
     // 沙漏坐标: 按 side 分组, 每层节点均匀分布在瓶形半宽内
     const pos = {};
-    pos[TECH_ROOT.id] = { x: SCX, y: SCY };
+    pos[ANCHOR] = { x: SCX, y: SCY };
     const sideGroups = { infra: [], A: [], B: [] };
-    allNodes.forEach(n => { if (!n.isRoot) sideGroups[n.side || 'infra'].push(n); });
+    allNodes.forEach(n => sideGroups[n.side || 'infra'].push(n));
     const maxD = {};
     ['infra', 'A', 'B'].forEach(s => { maxD[s] = Math.max(...sideGroups[s].map(n => depth[n.id])); });
 
@@ -1205,8 +1202,7 @@
         });
       }
     }
-    // 基建(腰部左侧 tidy-tree: 树根 branchBottle 紧邻瓶口, 向左展开, 保持拓扑、连线不交叉)
-    // 注: 基建是单一树(根 branchBottle), 拆左右两列会导致连线横穿腰部, 故用单侧 tidy-tree + 右侧对称装饰
+    // 基建(腰部左侧: 瓶子分支已在中心, 功能节点向左展开, 保持拓扑、连线不交叉)
     const infraRoot = sideGroups.infra.find(n => !n.prereq) || sideGroups.infra[0];
     const infraChildren = {};
     sideGroups.infra.forEach(n => { if (n.prereq) (infraChildren[n.prereq] = infraChildren[n.prereq] || []).push(n); });
@@ -1220,6 +1216,7 @@
       infraYSlot[id] = s / kids.length;
     })(infraRoot.id);
     sideGroups.infra.forEach(n => {
+      if (n.id === ANCHOR) return;   // 瓶子分支已在沙漏中心, 不参与左侧布局
       const d = depth[n.id];
       pos[n.id] = {
         x: SCX - 185 - (d - 1) * 72,
@@ -1235,8 +1232,8 @@
     html += `<path class="t-bottle-dim" d="M ${SCX + 185} ${SCY - 150} L ${SCX + 340} ${SCY - 150} L ${SCX + 340} ${SCY + 150} L ${SCX + 185} ${SCY + 150} Z"/>`;
     // 连线: 从父节点边缘指向子节点边缘的径向直线(子节点可见时父节点必然可见)
     for (const node of visibleNodes) {
-      if (node.isRoot) continue;
-      const parentId = node.prereq || TECH_ROOT.id;
+      if (node.id === ANCHOR) continue;   // 瓶子分支(锚点)不画连线
+      const parentId = node.prereq || ANCHOR;
       const a = pos[parentId], b = pos[node.id];
       if (!a || !b) continue;
       const st = techNodeState(node);
@@ -1255,10 +1252,7 @@
         pulse = `<rect class="t-pulse" x="${p.x - 32}" y="${p.y - 32}" width="64" height="64" fill="none" stroke="#ffc857"/>`;
       }
       // 占点数徽章(右上角): 模型A 一次性解锁, 显示该节点消耗的科技点
-      let pointsBadge = '';
-      if (!node.isRoot) {
-        pointsBadge = `<rect class="t-lv-badge" x="${p.x + 13}" y="${p.y - 33}" width="20" height="20" rx="3"/><text class="t-lv-text" x="${p.x + 23}" y="${p.y - 23}">${node.points}</text>`;
-      }
+      const pointsBadge = `<rect class="t-lv-badge" x="${p.x + 13}" y="${p.y - 33}" width="20" height="20" rx="3"/><text class="t-lv-text" x="${p.x + 23}" y="${p.y - 23}">${node.points}</text>`;
       // 解锁/升级动画: 扩散环 + 节点弹跳(刚解锁/升级的节点)
       let fxHtml = '';
       const animCls = (techAnim && techAnim.id === node.id) ? ' tech-anim' : '';
@@ -1303,12 +1297,6 @@
   document.body.appendChild(techTip);
 
   function techTipHTML(node) {
-    if (node.isRoot) {
-      const priceLine = panelUnlocked ? '已解锁' : '解锁 ' + node.cost + ' 瓶盖';
-      return `<div class="tech-tip-head"><span class="tech-tip-icon">${pixelSvg(node.icon || 'question', 30)}</span><span class="tech-tip-name">${node.name}</span></div>
-        <div class="tech-tip-detail">${node.detail || node.desc}</div>
-        <div class="tech-tip-meta"><span>价格：${priceLine}</span><span>前置：无</span></div>`;
-    }
     const lv = techLevel(node.id);
     const prereq = node.prereq ? TECH_TREE.find(t => t.id === node.prereq) : null;
     const prereqName = prereq ? pixelSvg(prereq.icon, 14) + ' ' + prereq.name : '无';
@@ -1333,7 +1321,7 @@
 
   // 显示节点悬浮提示(桌面 hover 与触屏 tap 共用)
   function showTechTip(id, x, y) {
-    const node = (id === TECH_ROOT.id) ? TECH_ROOT : TECH_TREE.find(t => t.id === id);
+    const node = TECH_TREE.find(t => t.id === id);
     if (!node) return;
     techTip.innerHTML = techTipHTML(node);
     techTip.classList.add('show');
@@ -1952,12 +1940,6 @@
     }
 
     const id = nodeEl.dataset.techId;
-    // 第0层根节点: 解锁科技树功能
-    if (id === TECH_ROOT.id) {
-      if (panelUnlocked) { notifyTip('check', '已解锁'); return; }
-      unlockPanel();
-      return;
-    }
     const node = TECH_TREE.find(t => t.id === id);
     if (!node) return;
     const st = techNodeState(node);

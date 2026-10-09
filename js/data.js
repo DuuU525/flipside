@@ -125,6 +125,7 @@
     panelUnlockCost: 30,  // 解锁功能界面所需瓶盖
     toastDuration: 2600,  // 成就达成通知停留时长(ms)
     achievementRewardPerAch: 0.02,  // 每个已达成成就使全局瓶盖收益 +2%
+    codexMilestones: [30, 100, 300],  // 图鉴收集里程碑奖励(集齐 1/2/3 种瓶子一次性瓶盖奖励)
 
     // 科技点经济(阶段一: 瓶盖兑换科技点, 通用池 50 上限, 节点占点解锁)
     techPoints: {

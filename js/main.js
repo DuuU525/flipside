@@ -173,7 +173,7 @@
   let spentTechPoints = 0;           // 累计已购买科技点总数(决定第 N 点价格, 上限 CONFIG.techPoints.max)
   let achieveGate = CONFIG.techPoints.achieveGate;   // 成就门槛开关(运行时, 默认读 CONFIG)
   let itemsOwned = {};               // id -> 已购买数量
-  let codex = { glass: 0, gold: 0, jade: 0, glassAt: 0, goldAt: 0, jadeAt: 0 };  // 图鉴: 累计开出瓶子数 + 首次开出时间戳
+  let codex = { glass: 0, gold: 0, jade: 0, glassAt: 0, goldAt: 0, jadeAt: 0, collected: 0 };  // 图鉴: 累计开出瓶子数 + 首次开出时间戳 + 已领取里程碑档位
   let stats = { earned: 0, inverted: 0, specialHits: 0, maxStreak: 0, golden: 0, consecutiveLie: 0 };  // 累计统计
   let achievements = {};             // 已达成成就 id -> true
   let milestoneNotified = {};         // 已通知的里程碑 id -> true
@@ -1027,7 +1027,7 @@
     techPoints = 0;
     spentTechPoints = 0;
     itemsOwned = {};
-    codex = { glass: 0, gold: 0, jade: 0, glassAt: 0, goldAt: 0, jadeAt: 0 };   // 图鉴随重新开始清空(全新游戏)
+    codex = { glass: 0, gold: 0, jade: 0, glassAt: 0, goldAt: 0, jadeAt: 0, collected: 0 };   // 图鉴随重新开始清空(全新游戏)
     stats = { earned: 0, inverted: 0, specialHits: 0, maxStreak: 0, golden: 0, consecutiveLie: 0 };
     achievements = {};
     milestoneNotified = {};
@@ -1613,6 +1613,28 @@
 
   function achievementCount() { return Object.keys(achievements).length; }
 
+  // 图鉴收集里程碑: 集齐 N 种瓶子(玻璃/黄金/翡翠)给一次性瓶盖奖励(独立于成就系统)
+  function checkCodexMilestones() {
+    const kinds = (codex.glass > 0 ? 1 : 0) + (codex.gold > 0 ? 1 : 0) + (codex.jade > 0 ? 1 : 0);
+    const collected = codex.collected || 0;   // 已领取到第几档
+    if (kinds <= collected) return;
+    let rewarded = false;
+    for (let k = collected + 1; k <= kinds; k++) {
+      const reward = CONFIG.codexMilestones[k - 1] || 0;
+      caps += reward; scoreDisplay += reward; stats.earned += reward;
+      if (caps > best) best = caps;
+      codex.collected = k;
+      const done = k >= 3;
+      notifyAchievement(
+        { icon: done ? 'crown' : 'star', name: done ? '图鉴收集完成' : ('收集进度 ' + k + '/3'), reward },
+        { title: '图鉴' }
+      );
+      Sound.achievement();
+      rewarded = true;
+    }
+    if (rewarded) { updateHUD(); renderPanel(); saveState(); }
+  }
+
   function milestoneUnlocked(id) {
     const m = MILESTONES.find(x => x.id === id);
     return !!m && achievementCount() >= m.at;
@@ -1738,7 +1760,22 @@
       </div>`;
     }).join('');
     const gotCount = items.filter(i => i.count > 0).length;
-    return '<div class="ach-header">图鉴 <span class="count">' + gotCount + '/3</span><span class="ach-bonus-hint">首次开出解锁购买权</span></div>' + cards;
+    const done = gotCount >= 3;
+    // 里程碑奖励进度: 集齐 N 种一次性奖励, 未领取档位显示待领
+    const col = codex.collected || 0;
+    const ml = CONFIG.codexMilestones.map((r, i) => {
+      const tier = i + 1;
+      const claimed = col >= tier;
+      const reachable = gotCount >= tier;
+      const cls = claimed ? 'claimed' : (reachable ? 'pending' : 'locked');
+      const txt = claimed ? ('已领 +' + r) : (reachable ? ('待领 +' + r) : (r + ' 盖'));
+      return `<span class="codex-ml ${cls}">${tier}种 · ${txt}</span>`;
+    }).join('');
+    const bonusHtml = done
+      ? '<span class="codex-done">★ 收集完成</span>'
+      : `<div class="codex-ml-row">${ml}</div>`;
+    return '<div class="ach-header codex-head' + (done ? ' codex-complete' : '') + '">图鉴 <span class="count">' + gotCount + '/3</span><span class="ach-bonus-hint">首次开出解锁购买权</span></div>'
+      + bonusHtml + cards;
   }
 
   function renderAchievements() {
@@ -1883,10 +1920,33 @@
     // 开箱结果直接给道具 +1(不进格子); 飘字位置在桌面中央上方
     const x = CONFIG.worldW / 2, y = 300;
     const reward = applyDropReward(pick.kind, pick.itemId, pick.amount, x, y);
-    // 开箱特效: 中央冲击波环(金色)
+    // 开箱特效: 按结果稀有度分级(普通=金色环 / 黄金瓶=金色强光+星光 / 翡翠瓶=翡翠绿强光+更多星光)
     const now = performance.now();
-    goldenFx.push({ type: 'ring', x, y, t0: now, r1: 60, dur: 320, w: 5, a: 0.9, color: '#ffd166' });
-    goldenFx.push({ type: 'ring', x, y, t0: now + 80, r1: 60, dur: 320, w: 3, a: 0.5, color: '#ffd166' });
+    const isJade = pick.kind === 'bottle' && pick.itemId === 'jadeBottle';
+    const isGold = pick.kind === 'bottle' && pick.itemId === 'specialBottle';
+    const color = isJade ? '#6ee7a0' : '#ffd166';
+    if (isJade || isGold) {
+      // 稀有: 三环强光 + 星光爆发
+      goldenFx.push({ type: 'ring', x, y, t0: now, r1: 60, dur: 380, w: 6, a: 0.95, color });
+      goldenFx.push({ type: 'ring', x, y, t0: now + 70, r1: 80, dur: 380, w: 4, a: 0.7, color });
+      goldenFx.push({ type: 'ring', x, y, t0: now + 140, r1: 100, dur: 380, w: 2, a: 0.45, color });
+      const n = isJade ? 8 : 6;
+      for (let i = 0; i < n; i++) {
+        goldenFx.push({
+          type: 'star', x, y,
+          vx: (Math.random() * 2 - 1) * 20, vy: -(12 + Math.random() * 22),
+          t0: now, dur: 700 + Math.random() * 400,
+          size: 2 + Math.random() * 3, rot: Math.random() * Math.PI * 2,
+          color,
+        });
+      }
+      if (isJade) Sound.golden();       // 翡翠最高稀有: 金色瞬间级高光音效
+      else Sound.achievement();          // 黄金: 上行琶音
+    } else {
+      // 普通: 单金色环
+      goldenFx.push({ type: 'ring', x, y, t0: now, r1: 60, dur: 320, w: 5, a: 0.9, color: '#ffd166' });
+      goldenFx.push({ type: 'ring', x, y, t0: now + 80, r1: 60, dur: 320, w: 3, a: 0.5, color: '#ffd166' });
+    }
     return reward;
   }
 
@@ -3199,6 +3259,7 @@
       if ((codex[key] || 0) === 0) codex[key + 'At'] = Date.now();
       codex[key] = (codex[key] || 0) + 1;
       checkAchievements();   // 图鉴计数可能达成收藏家/翡翠收藏家成就
+      checkCodexMilestones();   // 图鉴收集里程碑(集齐 N 种瓶子一次性奖励)
       return { type: 'bottle', name: bm.name };
     }
     if (kind === 'chest') {

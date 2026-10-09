@@ -2029,7 +2029,7 @@
     const st = techNodeState(node);
     const lv = techLevel(node.id);
     if (st === 'locked') { Sound.fail(); notifyTip('lock', '前置科技未解锁'); return; }
-    if (st === 'poor') { Sound.fail(); notifyTip('cap', '瓶盖不足'); return; }
+    if (st === 'poor') { Sound.fail(); notifyTip('flask', '科技点不足'); return; }
     if (st === 'unlocked') {
       notifyTip(node.maxLevel ? 'star' : 'check', node.maxLevel ? '已满级 Lv.' + lv : '已解锁');
       return;

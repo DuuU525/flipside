@@ -1288,16 +1288,108 @@
   techTip.id = 'techTip';
   document.body.appendChild(techTip);
 
+  // 科技效果数值(tooltip 用): 返回 { level, effect, per } 三行, per 为空则无「每级增量」行
+  // 模型A一次性满级: 节点解锁即满级(maxLevel 仅用于算满级效果值), 故 effect 显示满级效果数值
+  function techFxDetail(node) {
+    const lv = techLevel(node.id);
+    const max = node.maxLevel || 0;
+    const has = lv > 0;
+    const level = max > 0 ? `Lv.${has ? max : 0}/${max}` : (has ? '已解锁' : '未解锁');
+    let effect = '', per = '';
+    switch (node.id) {
+      case 'branchBottle':
+        effect = `桌面上限 +${max * CONFIG.expandCapPerLevel}（共 ${CONFIG.maxBottles + max * CONFIG.expandCapPerLevel} 个）`;
+        per = `每级 +${CONFIG.expandCapPerLevel} 上限`;
+        break;
+      case 'hammer':
+        effect = `返还 ${Math.round(CONFIG.hammerDrop.refundRatio * 100)}% · 掉瓶 ${Math.round(CONFIG.hammerDrop.bottleChance * 100)}% · 掉箱 ${CONFIG.hammerDrop.chestChance * 100}%`;
+        break;
+      case 'cooldown':
+        effect = `冷却 ${((CONFIG.cooldownBase - max * CONFIG.cooldownStep) / 1000).toFixed(1)}s`;
+        per = `每级 -${CONFIG.cooldownStep / 1000}s`;
+        break;
+      case 'stability':
+        effect = `直立区间半宽 +${CONFIG.stabilityUpright}`;
+        break;
+      case 'balance':
+        effect = `倒立区间半宽 +${CONFIG.balanceInverted}`;
+        break;
+      case 'godhand':
+        effect = `倒立区间半宽 +${CONFIG.godHandInverted[max - 1] || 0}`;
+        per = `各等级 +${CONFIG.godHandInverted.join(' / +')}`;
+        break;
+      case 'streakReward':
+        effect = `连击加成 +${max}`;
+        per = `每级 +${CONFIG.streakTechBonus} 瓶盖`;
+        break;
+      case 'streakWindow':
+        effect = `连击窗口 ${(CONFIG.streakBaseWindow + max * CONFIG.streakWindowPerLevel) / 1000}s`;
+        per = `每级 +${CONFIG.streakWindowPerLevel / 1000}s`;
+        break;
+      case 'pointerSlow':
+        effect = `蓄力指针速度 ×${CONFIG.pointerSlowMult}`;
+        break;
+      case 'perfect':
+        effect = `完美区 ±${CONFIG.perfectHalf} · 命中 ×${CONFIG.perfectMult}`;
+        break;
+      case 'goldenLuck':
+        effect = `金色瞬间概率 +${CONFIG.goldenLuckBonus * 100}%`;
+        break;
+      case 'invertedMaster':
+        effect = `解锁 Zoom 专注领域（连击 ≥20 触发）`;
+        break;
+      case 'unlockHand':
+        effect = `解锁道具「手」购买权`;
+        break;
+      case 'handFreq':
+        effect = `手抛瓶间隔 ${(CONFIG.autoThrowBase - max * CONFIG.autoThrowStep) / 1000}s`;
+        per = `每级 -${CONFIG.autoThrowStep / 1000}s`;
+        break;
+      case 'handLuck':
+        effect = `手命中区间半宽 +${(max * CONFIG.handLuckBonus).toFixed(2)}`;
+        per = `每级 +${CONFIG.handLuckBonus}`;
+        break;
+      case 'handStreak':
+        effect = `手连击上限 +${CONFIG.handStreakCap}`;
+        break;
+      case 'handGolden':
+        effect = `手金色瞬间概率 ${CONFIG.handGoldenChance * 100}%`;
+        break;
+      case 'handSync':
+        effect = `手总抛瓶间隔 ×${CONFIG.handSyncMult}`;
+        break;
+      case 'offline':
+        effect = `离线收益（上限 ${CONFIG.offlineCapHours}h · 折减 ${Math.round(CONFIG.offlineRate * 100)}%）`;
+        break;
+      case 'autoHarvest':
+        effect = `自动收过期掉落 · 收获格子 +${CONFIG.harvestSlots - CONFIG.event.baseSlots}`;
+        break;
+      case 'handReport':
+        effect = `离线归来弹挂机总结`;
+        break;
+      case 'autoFactory':
+        effect = `解锁桌面奇妙事件（掉落奖励）`;
+        break;
+      // 纯入口(branchLuck/streak/branchHand): 无独立数值, 用 desc
+      default:
+        effect = node.desc || '';
+    }
+    return { level, effect, per };
+  }
+
   function techTipHTML(node) {
     const lv = techLevel(node.id);
     const prereq = node.prereq ? TECH_TREE.find(t => t.id === node.prereq) : null;
     const prereqName = prereq ? pixelSvg(prereq.icon, 14) + ' ' + prereq.name : '无';
+    const fx = techFxDetail(node);
     // 状态行(模型A一次性满级, 无等级)
     const lvLine = lv > 0 ? '已解锁' : '未解锁';
     // 消耗行(科技点)
     const priceLine = lv > 0 ? '已解锁' : '消耗 ' + node.points + ' 科技点';
+    const perLine = fx.per ? `<span class="tech-tip-per">${fx.per}</span>` : '';
     return `<div class="tech-tip-head"><span class="tech-tip-icon">${pixelSvg(node.icon || 'question', 30)}</span><span class="tech-tip-name">${node.name}</span></div>
       <div class="tech-tip-detail">${node.detail || node.desc}</div>
+      <div class="tech-tip-fx"><span>等级：${fx.level}</span><span>效果：${fx.effect}</span>${perLine}</div>
       <div class="tech-tip-meta"><span>状态：${lvLine}</span><span>消耗：${priceLine}</span><span>前置：${prereqName}</span></div>`;
   }
 

@@ -877,17 +877,6 @@ kbd {
 }
 .tech-buy-btn:hover { background: rgba(255, 209, 102, 0.12); }
 .tech-buy-btn:disabled { opacity: 0.4; cursor: default; }
-.tech-gate-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--muted);
-  cursor: pointer;
-  white-space: nowrap;
-  user-select: none;
-}
-.tech-gate-toggle input { accent-color: #ffd166; cursor: pointer; }
 .tech-close {
   width: 34px; height: 34px;
   border: none; border-radius: 0;

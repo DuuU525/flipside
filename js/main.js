@@ -1237,8 +1237,9 @@
     const drawBottleShape = (side, yTop, yBot, lit) => {
       html += `<path class="${lit ? 't-bottle-lit' : 't-bottle-ghost'}" d="${bottleD(side, yTop, yBot)}"/>`;
     };
-    drawBottleShape('A', SCY - maxD.A * gapY, SCY - gapY * 0.55, techLevel('invertedMaster') > 0);
-    drawBottleShape('B', SCY + gapY * 0.55, SCY + maxD.B * gapY, techLevel('autoFactory') > 0);
+    // 瓶底外扩半个层距: 让终极节点(最外层)完整落在瓶身内部, 瓶底成为瓶子最外沿封口线, 不再横穿终极节点
+    drawBottleShape('A', SCY - (maxD.A + 0.5) * gapY, SCY - gapY * 0.55, techLevel('invertedMaster') > 0);
+    drawBottleShape('B', SCY + gapY * 0.55, SCY + (maxD.B + 0.5) * gapY, techLevel('autoFactory') > 0);
 
     // 连线: 从父节点边缘指向子节点边缘的径向直线(子节点可见时父节点必然可见)
     for (const node of visibleNodes) {

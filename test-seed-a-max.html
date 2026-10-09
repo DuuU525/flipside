@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>造 A 点满测试档</title></head>
+<body style="font-family:sans-serif;padding:24px;background:#111;color:#eee">
+  <p>正在注入「A 方向点满」测试档并跳转到游戏…</p>
+  <script>
+    // A 方向满(35点) + 基建满(5点) = 40 spent，剩 10 科技点
+    localStorage.setItem('pbottle.v', '10');
+    localStorage.setItem('pbottle.panel', '1');
+    localStorage.setItem('pbottle.caps', '999999');
+    localStorage.setItem('pbottle.tech', JSON.stringify({
+      branchBottle: 6, hammer: 5, cooldown: 5,
+      branchLuck: 1, stability: 1, balance: 1, streak: 1,
+      godhand: 3, streakReward: 3, streakWindow: 3, pointerSlow: 1,
+      perfect: 1, goldenLuck: 1, invertedMaster: 1
+    }));
+    localStorage.setItem('pbottle.techPoints', JSON.stringify({ points: 10, spent: 40 }));
+    localStorage.setItem('pbottle.codex', JSON.stringify({ glass: 1 }));
+    location.replace('index.html');
+  </script>
+</body>
+</html>

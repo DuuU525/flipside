@@ -959,8 +959,9 @@ kbd {
 #techSvg .t-link.blocked { stroke: rgba(255, 255, 255, 0.08); }
 @keyframes t-dash { to { stroke-dashoffset: -24; } }
 
-/* 瓶子成型(真实瓶形): 方向终极解锁 → 点亮(实线+玻璃蓝填色+光晕), 未解锁 → 清晰虚线轮廓 */
-#techSvg .t-bottle-lit { fill: rgba(150, 205, 255, 0.14); stroke: rgba(180, 216, 245, 0.85); stroke-width: 2.5; pointer-events: none; filter: drop-shadow(0 0 12px rgba(150, 205, 255, 0.4)); }
+/* 瓶子成型(真实瓶形): 方向终极解锁 → 点亮(实线+淡玻璃蓝填色), 未解锁 → 清晰虚线轮廓 */
+/* 层级: 瓶子在最底层(先绘制), 连线/节点在其上; 无 drop-shadow 光晕, 避免罩住技能节点 */
+#techSvg .t-bottle-lit { fill: rgba(150, 205, 255, 0.07); stroke: rgba(180, 216, 245, 0.85); stroke-width: 2.5; pointer-events: none; }
 #techSvg .t-bottle-ghost { fill: none; stroke: rgba(180, 216, 245, 0.38); stroke-width: 2; stroke-dasharray: 7 5; pointer-events: none; }
 
 #techSvg .t-lv-badge { fill: rgba(76, 201, 240, 0.16); stroke: var(--accent); stroke-width: 1; }

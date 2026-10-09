@@ -1222,6 +1222,24 @@
     });
 
     let html = '';
+
+    // 瓶子成型(真实瓶形: 瓶口/瓶颈/肩部按比例): A 倒立瓶向上 / B 正立瓶向下, 方向终极解锁后点亮
+    const bw = bottomHalf, tw = mouthHalf;
+    const bottleD = (side, yTop, yBot) => {
+      const H = yBot - yTop, neckY = H * 0.22, shoulderY = H * 0.38;
+      if (side === 'A') {
+        const bottomY = yTop, mouthY = yBot, neckTop = mouthY - neckY, shoulderTop = mouthY - shoulderY;
+        return `M ${SCX-bw} ${bottomY} L ${SCX+bw} ${bottomY} L ${SCX+bw} ${shoulderTop} C ${SCX+bw} ${neckTop+20} ${SCX+tw+16} ${neckTop} ${SCX+tw} ${neckTop-6} L ${SCX+tw} ${mouthY} L ${SCX-tw} ${mouthY} L ${SCX-tw} ${neckTop-6} C ${SCX-tw-16} ${neckTop} ${SCX-bw} ${neckTop+20} ${SCX-bw} ${shoulderTop} Z`;
+      }
+      const mouthY = yTop, bottomY = yBot, neckBottom = mouthY + neckY, shoulderBottom = mouthY + shoulderY;
+      return `M ${SCX-tw} ${mouthY} L ${SCX+tw} ${mouthY} L ${SCX+tw} ${neckBottom-6} C ${SCX+tw+16} ${neckBottom} ${SCX+bw} ${neckBottom+20} ${SCX+bw} ${shoulderBottom} L ${SCX+bw} ${bottomY} L ${SCX-bw} ${bottomY} L ${SCX-bw} ${shoulderBottom} C ${SCX-bw} ${neckBottom+20} ${SCX-tw-16} ${neckBottom} ${SCX-tw} ${neckBottom-6} Z`;
+    };
+    const drawBottleShape = (side, yTop, yBot, lit) => {
+      html += `<path class="${lit ? 't-bottle-lit' : 't-bottle-ghost'}" d="${bottleD(side, yTop, yBot)}"/>`;
+    };
+    drawBottleShape('A', SCY - maxD.A * gapY, SCY - gapY * 0.55, techLevel('invertedMaster') > 0);
+    drawBottleShape('B', SCY + gapY * 0.55, SCY + maxD.B * gapY, techLevel('autoFactory') > 0);
+
     // 连线: 从父节点边缘指向子节点边缘的径向直线(子节点可见时父节点必然可见)
     for (const node of visibleNodes) {
       if (node.id === ANCHOR) continue;   // 瓶子(锚点)不画连线

@@ -959,10 +959,9 @@ kbd {
 #techSvg .t-link.blocked { stroke: rgba(255, 255, 255, 0.08); }
 @keyframes t-dash { to { stroke-dashoffset: -24; } }
 
-/* 沙漏瓶形轮廓虚线(倒立瓶 A / 正立瓶 B) */
-#techSvg .t-bottle { fill: none; stroke: rgba(255, 255, 255, 0.14); stroke-width: 1.5; stroke-dasharray: 8 6; pointer-events: none; }
-/* 右侧对称装饰(更淡, 呼应环绕) */
-#techSvg .t-bottle-dim { fill: none; stroke: rgba(255, 255, 255, 0.06); stroke-width: 1.5; stroke-dasharray: 6 8; pointer-events: none; }
+/* 瓶子成型(真实瓶形): 方向终极解锁 → 点亮(实线+玻璃蓝填色+光晕), 未解锁 → 清晰虚线轮廓 */
+#techSvg .t-bottle-lit { fill: rgba(150, 205, 255, 0.14); stroke: rgba(180, 216, 245, 0.85); stroke-width: 2.5; pointer-events: none; filter: drop-shadow(0 0 12px rgba(150, 205, 255, 0.4)); }
+#techSvg .t-bottle-ghost { fill: none; stroke: rgba(180, 216, 245, 0.38); stroke-width: 2; stroke-dasharray: 7 5; pointer-events: none; }
 
 #techSvg .t-lv-badge { fill: rgba(76, 201, 240, 0.16); stroke: var(--accent); stroke-width: 1; }
 #techSvg .t-lv-text { fill: var(--accent); font-size: 10px; font-weight: 700; text-anchor: middle; dominant-baseline: central; }

@@ -256,7 +256,7 @@
     { id: 'jadeBottle',    name: '翡翠瓶', cost: 300, repeatable: true, codex: 'jade',  desc: '桌面增加 1 个翡翠瓶 · 命中 ×5（图鉴解锁）' },
     { id: 'hand',          name: '手',      cost: 60,  repeatable: true, max: 8, unlockTech: 'unlockHand', desc: '自动抛空闲瓶子 · 每只手需要一个瓶子' },
     { id: 'hammer',        name: '锤子',  cost: 30,  repeatable: true, max: 99, unlockTech: 'hammer', desc: '敲碎任意瓶子 · 返还 70% + 掉宝' },
-    { id: 'chest',         name: '神秘宝箱', cost: 150, repeatable: true, desc: '随机开出玻璃瓶 / 瓶盖 / 锤子 / 黄金瓶 / 翡翠瓶' },
+    { id: 'chest',         name: '神秘宝箱', cost: 200, repeatable: true, desc: '随机开出玻璃瓶 / 瓶盖 / 锤子 / 黄金瓶 / 翡翠瓶' },
   ];
 
   // 宝箱奖池(稀有瓶通过宝箱开出, 图鉴解锁后可直购)
